@@ -211,6 +211,36 @@ export class AgentController {
     }
   }
 
+  private async ensureContentScript(tabId: number, url?: string): Promise<void> {
+    if (url && (
+      url.startsWith('chrome://') ||
+      url.startsWith('chrome-extension://') ||
+      url.startsWith('edge://') ||
+      url.startsWith('about:') ||
+      url.startsWith('view-source:') ||
+      url.includes('chromewebstore.google.com')
+    )) {
+      throw new Error(
+        `Cannot automate internal browser page (${url}). Chrome restricts extensions on internal and Web Store pages. Please navigate to a standard public website (e.g. https://wikipedia.org or https://news.ycombinator.com).`
+      );
+    }
+
+    if (typeof chrome !== 'undefined' && chrome.scripting && chrome.scripting.executeScript) {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ['content.js'],
+        });
+        await new Promise((r) => setTimeout(r, 150));
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('cannot be scripted') || msg.includes('Cannot access')) {
+          throw new Error(`This page cannot be automated by Chrome extensions (${msg}). Please navigate to an open web page.`);
+        }
+      }
+    }
+  }
+
   private async capturePageDOM(tabId: number): Promise<DOMState> {
     if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.sendMessage) {
       return {
@@ -222,17 +252,51 @@ export class AgentController {
       };
     }
 
-    return new Promise((resolve, reject) => {
-      chrome.tabs.sendMessage(tabId, { type: 'GET_DOM_STATE', showOverlay: true }, (response) => {
-        if (chrome.runtime.lastError) {
-          return reject(new Error(`Failed to communicate with active tab: ${chrome.runtime.lastError.message}`));
-        }
-        if (!response || !response.success) {
-          return reject(new Error(response?.error || 'Failed to capture DOM state'));
-        }
-        resolve(response.data);
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.url && (
+        tab.url.startsWith('chrome://') ||
+        tab.url.startsWith('chrome-extension://') ||
+        tab.url.startsWith('edge://') ||
+        tab.url.startsWith('about:') ||
+        tab.url.startsWith('view-source:') ||
+        tab.url.includes('chromewebstore.google.com')
+      )) {
+        throw new Error(
+          `Cannot automate internal browser page (${tab.url}). Chrome blocks extension scripts on internal and Web Store pages. Please switch to a regular website (e.g. https://wikipedia.org) and try again.`
+        );
+      }
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes('Cannot automate internal browser page')) {
+        throw e;
+      }
+    }
+
+    const sendMsg = (): Promise<DOMState> => {
+      return new Promise((resolve, reject) => {
+        chrome.tabs.sendMessage(tabId, { type: 'GET_DOM_STATE', showOverlay: true }, (response) => {
+          if (chrome.runtime.lastError) {
+            return reject(new Error(chrome.runtime.lastError.message));
+          }
+          if (!response || !response.success) {
+            return reject(new Error(response?.error || 'Failed to capture DOM state'));
+          }
+          resolve(response.data);
+        });
       });
-    });
+    };
+
+    try {
+      return await sendMsg();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('Receiving end does not exist') || msg.includes('Could not establish connection')) {
+        const tab = await chrome.tabs.get(tabId);
+        await this.ensureContentScript(tabId, tab.url);
+        return await sendMsg();
+      }
+      throw err;
+    }
   }
 
   private buildPromptMessages(goal: string, domState: DOMState): LLMMessage[] {

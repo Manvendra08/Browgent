@@ -55,6 +55,22 @@ chrome.runtime.onConnect.addListener((port) => {
           return;
         }
 
+        const url = activeTab.url || '';
+        if (
+          url.startsWith('chrome://') ||
+          url.startsWith('chrome-extension://') ||
+          url.startsWith('edge://') ||
+          url.startsWith('about:') ||
+          url.startsWith('view-source:') ||
+          url.includes('chromewebstore.google.com')
+        ) {
+          port.postMessage({
+            type: 'ERROR',
+            error: `Cannot automate internal browser page (${url || 'new tab'}). Chrome security blocks extensions on internal settings, extensions, and Web Store pages. Please open a regular website (e.g. https://wikipedia.org) and try again.`,
+          });
+          return;
+        }
+
         activeAgent = new AgentController({
           llmConfig,
           maxSteps: maxSteps || 15,
