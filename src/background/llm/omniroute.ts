@@ -1,4 +1,5 @@
 import { LLMConfig, LLMMessage } from './types';
+import { fetchLLM } from './net';
 
 export const OMNIROUTE_DEFAULT_BASE_URL = 'http://localhost:20128/v1/chat/completions';
 
@@ -52,11 +53,11 @@ export async function queryOmniRoute(config: LLMConfig, messages: LLMMessage[]):
     headers['Authorization'] = `Bearer ${config.apiKey.trim()}`;
   }
 
-  const response = await fetch(endpoint, {
+  const response = await fetchLLM(endpoint, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
-  });
+  }, 'OmniRoute');
 
   if (!response.ok) {
     const errorBody = await response.text();

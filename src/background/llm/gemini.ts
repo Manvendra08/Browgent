@@ -1,4 +1,5 @@
 import { LLMConfig, LLMMessage } from './types';
+import { fetchLLM } from './net';
 
 export async function queryGemini(config: LLMConfig, messages: LLMMessage[]): Promise<string> {
   const model = config.model || 'gemini-2.5-flash';
@@ -56,11 +57,11 @@ export async function queryGemini(config: LLMConfig, messages: LLMMessage[]): Pr
     };
   }
 
-  const response = await fetch(endpoint, {
+  const response = await fetchLLM(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  }, 'Gemini');
 
   if (!response.ok) {
     const errorBody = await response.text();

@@ -1,4 +1,5 @@
 import { LLMConfig } from '../background/llm/types';
+import { fetchLLM } from '../background/llm/net';
 
 export interface ModelFetchResult {
   models: string[];
@@ -29,7 +30,7 @@ export async function fetchAvailableModels(config: LLMConfig): Promise<ModelFetc
         const root = apiRootFromChatUrl(base);
         const headers: Record<string, string> = {};
         if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
-        const res = await fetch(`${root}/models`, { headers });
+        const res = await fetchLLM(`${root}/models`, { headers }, 'OmniRoute');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         return { models: (data.data || []).map((m: { id: string }) => m.id).filter(Boolean) };
@@ -41,9 +42,9 @@ export async function fetchAvailableModels(config: LLMConfig): Promise<ModelFetc
         if (!base) throw new Error('Endpoint Base URL is required for OpenAI Compatible providers');
         const root = apiRootFromChatUrl(base);
         if (!apiKey) throw new Error('API Key is required to list models');
-        const res = await fetch(`${root}/models`, {
+        const res = await fetchLLM(`${root}/models`, {
           headers: { Authorization: `Bearer ${apiKey}` },
-        });
+        }, 'OpenAI-compatible endpoint');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         return { models: (data.data || []).map((m: { id: string }) => m.id).filter(Boolean) };
@@ -51,8 +52,10 @@ export async function fetchAvailableModels(config: LLMConfig): Promise<ModelFetc
 
       case 'gemini': {
         if (!apiKey) throw new Error('Gemini API key is required to list models');
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=100`
+        const res = await fetchLLM(
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=100`,
+          {},
+          'Gemini'
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
@@ -68,13 +71,13 @@ export async function fetchAvailableModels(config: LLMConfig): Promise<ModelFetc
         if (!apiKey) throw new Error('Anthropic API key is required to list models');
         const base = config.baseUrl?.trim() || 'https://api.anthropic.com/v1/messages';
         const root = base.replace(/\/v1\/messages\/?$/, '').replace(/\/$/, '');
-        const res = await fetch(`${root}/v1/models?limit=100`, {
+        const res = await fetchLLM(`${root}/v1/models?limit=100`, {
           headers: {
             'x-api-key': apiKey,
             'anthropic-version': '2023-06-01',
             'anthropic-dangerous-direct-browser-access': 'true',
           },
-        });
+        }, 'Anthropic');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         return { models: (data.data || []).map((m: { id: string }) => m.id).filter(Boolean) };

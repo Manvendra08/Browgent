@@ -1,4 +1,5 @@
 import { LLMConfig, LLMMessage } from './types';
+import { fetchLLM } from './net';
 
 export async function queryAnthropic(config: LLMConfig, messages: LLMMessage[]): Promise<string> {
   const model = config.model || 'claude-3-7-sonnet-20250219';
@@ -59,7 +60,7 @@ export async function queryAnthropic(config: LLMConfig, messages: LLMMessage[]):
     payload.system = systemPrompt;
   }
 
-  const response = await fetch(endpoint, {
+  const response = await fetchLLM(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -68,7 +69,7 @@ export async function queryAnthropic(config: LLMConfig, messages: LLMMessage[]):
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify(payload),
-  });
+  }, 'Anthropic');
 
   if (!response.ok) {
     const errorBody = await response.text();

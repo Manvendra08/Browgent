@@ -1,4 +1,5 @@
 import { LLMConfig, LLMMessage } from './types';
+import { fetchLLM } from './net';
 
 export async function queryOpenAI(config: LLMConfig, messages: LLMMessage[]): Promise<string> {
   const endpoint = config.baseUrl && config.baseUrl.trim() !== ''
@@ -34,11 +35,11 @@ export async function queryOpenAI(config: LLMConfig, messages: LLMMessage[]): Pr
     headers['Authorization'] = `Bearer ${config.apiKey.trim()}`;
   }
 
-  const response = await fetch(endpoint, {
+  const response = await fetchLLM(endpoint, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
-  });
+  }, 'OpenAI-compatible endpoint');
 
   if (!response.ok) {
     const errorBody = await response.text();
