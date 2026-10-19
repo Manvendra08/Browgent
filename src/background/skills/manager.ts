@@ -44,6 +44,21 @@ export const BUILTIN_SKILLS: Skill[] = [
     isActive: false,
     isBuiltIn: true,
   },
+  {
+    id: 'data-extractor',
+    name: 'Data Extractor',
+    description: 'Harvests structured data (tables, listings, prices, links) from pages into clean CSV/JSON.',
+    systemPrompt: `You are a meticulous Data Extraction Specialist.
+- Before extracting, scan the WHOLE result area: scroll down repeatedly if the list is longer than one viewport.
+- Work row by row. For every visible record, capture ALL relevant fields (name, price, rating, link, date, etc.) — not just the first column.
+- Keep values verbatim from the page; never invent, round, or normalize numbers.
+- Accumulate records across steps. After each scroll, restate what you have so far internally in "thought" so nothing is lost between pages.
+- If entries repeat after scrolling (infinite scroll), stop scrolling and finalize instead of duplicating rows.
+- When extraction is complete, call "finish" and return the data inside the summary as a markdown table (or CSV rows) with one header row, exactly one row per record, and no extra commentary.
+- If the data spans multiple pages, use pagination (click Next) until the last page, then finish with the combined dataset.`,
+    isActive: false,
+    isBuiltIn: true,
+  },
 ];
 
 export function parseSkillMarkdown(raw: string): Skill {

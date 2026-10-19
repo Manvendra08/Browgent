@@ -74,6 +74,7 @@ export async function queryLLM(config: LLMConfig, messages: LLMMessage[]): Promi
       break;
 
     case 'openai':
+    case 'openai-compat':
       responseText = await queryOpenAI(config, messages);
       break;
 

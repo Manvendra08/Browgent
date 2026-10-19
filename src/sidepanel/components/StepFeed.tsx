@@ -17,6 +17,8 @@ interface StepFeedProps {
   finalSummary?: string;
   errorMessage?: string;
   isRunning: boolean;
+  suggestions?: string[];
+  onSuggestionClick?: (prompt: string) => void;
 }
 
 export const StepFeed: React.FC<StepFeedProps> = ({
@@ -24,6 +26,8 @@ export const StepFeed: React.FC<StepFeedProps> = ({
   finalSummary,
   errorMessage,
   isRunning,
+  suggestions,
+  onSuggestionClick,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [expandedThoughts, setExpandedThoughts] = React.useState<Record<string, boolean>>({});
@@ -102,9 +106,23 @@ export const StepFeed: React.FC<StepFeedProps> = ({
         <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
           <Sparkles className="w-8 h-8 text-indigo-400/40 mb-2" />
           <p className="text-xs font-medium text-slate-400">Ready for instructions</p>
-          <p className="text-[11px] mt-1 max-w-[220px]">
-            Enter a prompt below to have Browgent interact with the active page.
+          <p className="text-[11px] mt-1 max-w-[220px] text-slate-400">
+            Enter a prompt below or pick a starter:
           </p>
+          {suggestions && suggestions.length > 0 && (
+            <div className="mt-3 w-full max-w-[260px] flex flex-col gap-1.5">
+              {suggestions.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => onSuggestionClick?.(prompt)}
+                  className="w-full text-left px-2.5 py-1.5 rounded-md text-[11px] text-slate-300 bg-slate-800/60 border border-slate-700/60 hover:border-indigo-500/60 hover:text-indigo-300 transition leading-snug"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -132,7 +150,7 @@ export const StepFeed: React.FC<StepFeedProps> = ({
                   <AlertCircle className="w-3 h-3 text-rose-400" />
                 )}
               </div>
-              <span className="text-[10px] text-slate-500">
+              <span className="text-[10px] text-slate-400">
                 {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </span>
             </div>

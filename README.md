@@ -13,7 +13,7 @@ Browgent is a zero-dependency, client-side autonomous web agent built as a nativ
   - **OpenAI / OpenRouter / Ollama / DeepSeek**: Full OpenAI-compatible chat completion support.
   - **Google Gemini**: Direct `generateContent` API integration.
   - **Anthropic Claude**: Direct `messages` API integration.
-- **Modular Skills System**: Toggle domain-specific behavioral skills (Form Filler, Web Researcher, E-Commerce Shopper, UI/UX Bug Auditor) or import custom Markdown skills with YAML frontmatter.
+- **Modular Skills System**: Toggle domain-specific behavioral skills (Form Filler, Web Researcher, E-Commerce Shopper, UI/UX Bug Auditor, Data Extractor) or import custom Markdown skills with YAML frontmatter.
 - **Multi-Modal File Ingestion**: Drag-and-drop reference files (CSV, JSON, Text) or images for visual verification directly into the sidebar prompt context. Images are forwarded to every provider (OpenAI-style `image_url` parts for OmniRoute/OpenAI-compatible routers, base64 content blocks for Anthropic, `inlineData` for Gemini).
 - **Extensible Tool Registry & MCP Client**: Built-in browser actions coupled with an MCP Streamable HTTP client (JSON mode) that performs the `initialize` handshake, tracks `Mcp-Session-Id`, and invokes external MCP tools dynamically via `mcp_call`.
 - **Persistent Keepalive Service Worker**: Dedicated Port heartbeat prevents Manifest V3 background service worker idle timeouts during long reasoning loops.

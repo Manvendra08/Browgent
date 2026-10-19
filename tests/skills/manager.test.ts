@@ -28,4 +28,19 @@ Fill all input forms meticulously without missing required fields.`;
     expect(formFiller).toBeDefined();
     expect(formFiller?.systemPrompt).toBeTruthy();
   });
+
+  it('includes the data-extractor skill with extraction guidance', () => {
+    const dataExtractor = BUILTIN_SKILLS.find((s) => s.id === 'data-extractor');
+    expect(dataExtractor).toBeDefined();
+    expect(dataExtractor?.name).toBe('Data Extractor');
+    expect(dataExtractor?.isBuiltIn).toBe(true);
+    expect(dataExtractor?.systemPrompt).toContain('finish');
+    expect(dataExtractor?.systemPrompt).toContain('scroll');
+  });
+
+  it('has unique ids across all built-in skills', () => {
+    const ids = BUILTIN_SKILLS.map((s) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    ids.forEach((id) => expect(id.length).toBeGreaterThan(0));
+  });
 });

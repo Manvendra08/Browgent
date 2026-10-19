@@ -1,6 +1,6 @@
 import { AgentAction } from '../types';
 
-export type ProviderType = 'omniroute' | 'openai' | 'gemini' | 'anthropic';
+export type ProviderType = 'omniroute' | 'openai' | 'openai-compat' | 'gemini' | 'anthropic';
 
 export interface LLMConfig {
   provider: ProviderType;

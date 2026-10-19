@@ -48,8 +48,12 @@ chrome.runtime.onConnect.addListener((port) => {
           mcpEndpoint?: string;
         };
 
-        // Find active tab
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        // Find the active tab: prefer the last focused window (the one the
+        // side panel is attached to), fall back to the current window.
+        let tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (!tabs || tabs.length === 0) {
+          tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        }
         const activeTab = tabs[0];
         if (!activeTab || !activeTab.id) {
           port.postMessage({ type: 'ERROR', error: 'No active tab found to operate on.' });
@@ -73,7 +77,16 @@ chrome.runtime.onConnect.addListener((port) => {
           mcpEndpoint,
         });
 
-        port.postMessage({ type: 'STATUS_UPDATE', status: 'running' });
+        port.postMessage({
+          type: 'STATUS_UPDATE',
+          status: 'running',
+          tab: {
+            id: activeTab.id,
+            title: activeTab.title,
+            url: activeTab.url,
+            favIconUrl: activeTab.favIconUrl,
+          },
+        });
 
         try {
           const result = await activeAgent.run(activeTab.id, goal, (event) => {

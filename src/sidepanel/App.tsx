@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Bot, Trash2 } from 'lucide-react';
+import { Settings, Bot, Trash2, Sun, Moon } from 'lucide-react';
 import { LLMConfig } from '../background/llm/types';
 import { Skill } from '../background/skills/types';
 import { BUILTIN_SKILLS, loadStoredSkills, saveStoredSkills } from '../background/skills/manager';
@@ -8,12 +8,28 @@ import { GoalInput } from './components/GoalInput';
 import { StepFeed, FeedItem } from './components/StepFeed';
 import { SkillSelector } from './components/SkillSelector';
 import { FileAttachment } from './components/FileAttachment';
+import { ActiveTabBar, type ActiveTabInfo } from './components/ActiveTabBar';
 import { SettingsModal } from './components/SettingsModal';
 
 const DEFAULT_CONFIG: LLMConfig = {
   provider: 'omniroute',
   baseUrl: 'http://localhost:20128/v1/chat/completions',
   model: 'anti',
+};
+
+export const DEFAULT_PROMPTS: string[] = [
+  'Summarize the key points of this page in 5 bullets',
+  'Extract all products with names and prices into a markdown table',
+  'Fill out the form on this page with sensible test data, then review before submitting',
+  'Check this page for broken links and layout issues',
+];
+
+const PROVIDER_LABELS: Record<string, string> = {
+  omniroute: 'OmniRoute',
+  openai: 'OpenAI',
+  'openai-compat': 'OpenAI Compatible',
+  gemini: 'Gemini',
+  anthropic: 'Anthropic',
 };
 
 export const App: React.FC = () => {
@@ -30,8 +46,101 @@ export const App: React.FC = () => {
   const [mcpEndpoint, setMcpEndpoint] = useState<string>('');
 
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+
+  // Live active tab (for display) + the tab the agent is operating on (while running)
+  const [activeTab, setActiveTab] = useState<ActiveTabInfo | null>(null);
+  const [agentTab, setAgentTab] = useState<ActiveTabInfo | null>(null);
 
   const portRef = useRef<chrome.runtime.Port | null>(null);
+
+  // Load theme preference
+  useEffect(() => {
+    const load = (stored: unknown) => {
+      if (stored === 'light' || stored === 'dark') setTheme(stored);
+    };
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['browgent_theme'], (res) => load(res.browgent_theme));
+    } else if (typeof localStorage !== 'undefined') {
+      load(localStorage.getItem('browgent_theme'));
+    }
+  }, []);
+
+  // Apply theme class to the document root
+  useEffect(() => {
+    const root = typeof document !== 'undefined' ? document.documentElement : null;
+    if (root) root.classList.toggle('theme-light', theme === 'light');
+  }, [theme]);
+
+  const handleToggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ browgent_theme: next });
+    } else if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('browgent_theme', next);
+    }
+  };
+
+  // Track the currently active tab (live) for the tab bar above the prompt box
+  const refreshActiveTab = React.useCallback(async () => {
+    if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.query) return;
+    try {
+      let tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (!tabs || tabs.length === 0) {
+        tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      }
+      const t = tabs[0];
+      if (!t) return;
+      setActiveTab({
+        id: t.id,
+        title: t.title,
+        url: t.url,
+        favIconUrl: t.favIconUrl,
+      });
+    } catch {
+      // Ignore transient query failures (e.g. window closing)
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.query) return;
+
+    refreshActiveTab();
+
+    const onActivated = () => {
+      refreshActiveTab();
+    };
+    const onUpdated = (
+      _tabId: number,
+      _changeInfo: chrome.tabs.TabChangeInfo,
+      tab: chrome.tabs.Tab,
+    ) => {
+      if (tab.active) refreshActiveTab();
+    };
+    const onRemoved = () => {
+      refreshActiveTab();
+    };
+    const onFocused = (windowId: number) => {
+      if (windowId !== chrome.windows.WINDOW_ID_NONE) refreshActiveTab();
+    };
+
+    chrome.tabs.onActivated.addListener(onActivated);
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.onRemoved.addListener(onRemoved);
+    if (chrome.windows && chrome.windows.onFocusChanged) {
+      chrome.windows.onFocusChanged.addListener(onFocused);
+    }
+
+    return () => {
+      chrome.tabs.onActivated.removeListener(onActivated);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      chrome.tabs.onRemoved.removeListener(onRemoved);
+      if (chrome.windows && chrome.windows.onFocusChanged) {
+        chrome.windows.onFocusChanged.removeListener(onFocused);
+      }
+    };
+  }, [refreshActiveTab]);
 
   // Connect port to background service worker
   useEffect(() => {
@@ -45,6 +154,16 @@ export const App: React.FC = () => {
     port.onMessage.addListener((msg) => {
       if (msg.type === 'STATUS_UPDATE') {
         setStatus(msg.status);
+        if (msg.status === 'running' && msg.tab) {
+          setAgentTab({
+            id: msg.tab.id,
+            title: msg.tab.title,
+            url: msg.tab.url,
+            favIconUrl: msg.tab.favIconUrl,
+          });
+        } else {
+          setAgentTab(null);
+        }
       }
 
       if (msg.type === 'AGENT_EVENT') {
@@ -96,6 +215,7 @@ export const App: React.FC = () => {
       }
 
       if (msg.type === 'FINISHED') {
+        setAgentTab(null);
         if (msg.success) {
           setStatus('completed');
           if (msg.summary) setFinalSummary(msg.summary);
@@ -107,6 +227,7 @@ export const App: React.FC = () => {
 
       if (msg.type === 'ERROR') {
         setStatus('failed');
+        setAgentTab(null);
         setErrorMessage(msg.error);
       }
     });
@@ -222,7 +343,7 @@ export const App: React.FC = () => {
               </span>
             </div>
             <div className="text-[10px] text-slate-400 font-mono">
-              {config.provider}: {config.model || 'default'}
+              {PROVIDER_LABELS[config.provider] || config.provider}: {config.model || 'default'}
             </div>
           </div>
         </div>
@@ -232,16 +353,28 @@ export const App: React.FC = () => {
             <button
               onClick={handleClearHistory}
               title="Clear timeline"
-              className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition"
+              aria-label="Clear timeline"
+              className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
 
           <button
+            onClick={handleToggleTheme}
+            title={theme === 'dark' ? 'Switch to day mode' : 'Switch to night mode'}
+            aria-label={theme === 'dark' ? 'Switch to day mode' : 'Switch to night mode'}
+            aria-pressed={theme === 'light'}
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+          >
+            {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+          </button>
+
+          <button
             onClick={() => setIsSettingsOpen(true)}
             title="Settings"
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition"
+            aria-label="Open settings"
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
           >
             <Settings className="w-3.5 h-3.5" />
           </button>
@@ -257,6 +390,10 @@ export const App: React.FC = () => {
         finalSummary={finalSummary}
         errorMessage={errorMessage}
         isRunning={status === 'running'}
+        suggestions={DEFAULT_PROMPTS}
+        onSuggestionClick={(prompt) => {
+          setGoal(prompt);
+        }}
       />
 
       {/* File Attachment & Context Controls */}
@@ -268,6 +405,12 @@ export const App: React.FC = () => {
           disabled={status === 'running'}
         />
       </div>
+
+      {/* Active Tab Bar (directly above the prompt box) */}
+      <ActiveTabBar
+        tab={status === 'running' && agentTab ? agentTab : activeTab}
+        isAgentTarget={status === 'running' && agentTab !== null}
+      />
 
       {/* Goal Input Footer */}
       <GoalInput
