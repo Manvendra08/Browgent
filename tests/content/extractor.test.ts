@@ -46,4 +46,31 @@ describe('DOM Extractor', () => {
     const hasHidden = elements.some((el) => el.text.includes('Hidden'));
     expect(hasHidden).toBe(false);
   });
+
+  it('extracts quiz radio options and labels even with hidden opacity radio inputs', () => {
+    document.body.innerHTML = `
+      <div class="quiz-question">
+        <p>Which historical creative revolution?</p>
+        <div class="quiz-options">
+          <label class="option-row">
+            <input type="radio" name="q1" value="opt1" style="opacity: 0; position: absolute;" />
+            <span class="option-text">The invention of photography</span>
+          </label>
+          <label class="option-row">
+            <input type="radio" name="q1" value="opt2" style="opacity: 0; position: absolute;" />
+            <span class="option-text">The industrial revolution</span>
+          </label>
+        </div>
+        <button id="btn-next">NEXT</button>
+        <button id="btn-submit">SUBMIT</button>
+      </div>
+    `;
+
+    const elements = extractInteractiveElements(document);
+    const texts = elements.map((e) => e.text);
+    expect(texts.some((t) => t.includes('The invention of photography'))).toBe(true);
+    expect(texts.some((t) => t.includes('The industrial revolution'))).toBe(true);
+    expect(texts.some((t) => t.includes('NEXT'))).toBe(true);
+    expect(texts.some((t) => t.includes('SUBMIT'))).toBe(true);
+  });
 });

@@ -327,8 +327,13 @@ INSTRUCTIONS:
 1. Carefully observe the current page URL, title, and the numbered interactive elements list.
 2. Formulate your reasoning and internal monologue in the "thought" field.
 3. Choose EXACTLY ONE action to perform this turn.
-4. If you have fulfilled the user goal, call the "finish" action with a thorough summary.
-5. If the goal is impossible, call "fail" with the explanation.
+4. FOR QUIZZES, FORMS & MULTIPLE-CHOICE TESTS:
+   - Read the question and locate the corresponding answer option among the numbered elements.
+   - You MUST FIRST CLICK the specific radio/choice element corresponding to your chosen answer BEFORE clicking "Submit" or "Next"!
+   - Do not hallucinate that an option is selected without having clicked it.
+   - After selecting the answer, click Submit (if required). Once the submission is confirmed, click Next to advance to subsequent questions.
+5. If you have fulfilled the user goal, call the "finish" action with a thorough summary.
+6. If the goal is impossible, call "fail" with the explanation.
 
 RESPONSE FORMAT:
 You MUST respond with a valid JSON block enclosed in \`\`\`json ... \`\`\`:

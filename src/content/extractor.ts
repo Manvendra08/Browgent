@@ -6,15 +6,21 @@ const INTERACTIVE_SELECTORS = [
   'input:not([type="hidden"])',
   'textarea',
   'select',
+  'label',
   '[role="button"]',
   '[role="link"]',
   '[role="checkbox"]',
   '[role="radio"]',
+  '[role="option"]',
   '[role="tab"]',
   '[role="menuitem"]',
   '[role="switch"]',
   '[contenteditable="true"]',
   '[tabindex]:not([tabindex="-1"])',
+  '[onclick]',
+  '[class*="option" i]',
+  '[class*="choice" i]',
+  '[class*="answer" i]',
 ].join(', ');
 
 export function isElementVisible(el: Element): boolean {
@@ -35,8 +41,15 @@ export function isElementVisible(el: Element): boolean {
   if (typeof window !== 'undefined' && window.getComputedStyle) {
     try {
       const style = window.getComputedStyle(el);
-      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+      if (style.display === 'none' || style.visibility === 'hidden') {
         return false;
+      }
+      // If opacity is 0, allow it if it's a radio/checkbox input inside a visible container
+      if (style.opacity === '0') {
+        const isInput = el.tagName === 'INPUT';
+        if (!isInput) {
+          return false;
+        }
       }
     } catch {
       // In non-DOM testing environments
@@ -48,22 +61,49 @@ export function isElementVisible(el: Element): boolean {
 
 export function extractInteractiveElements(doc: Document = document): PerceivedElement[] {
   const elements: PerceivedElement[] = [];
-  const rawNodes = doc.querySelectorAll(INTERACTIVE_SELECTORS);
+  const rawNodes = Array.from(doc.querySelectorAll(INTERACTIVE_SELECTORS));
+
+  // Filter out elements that are inside another extracted label/button with the same text to prevent duplicate badges
+  const filteredNodes = rawNodes.filter((node) => {
+    if (!isElementVisible(node)) {
+      return false;
+    }
+
+    // Skip nested elements inside a label if the label itself is already interactive
+    if (node.tagName !== 'LABEL' && node.closest('label') && rawNodes.includes(node.closest('label')!)) {
+      // If it's the input inside the label, let the label represent the clickable target with text
+      return false;
+    }
+
+    // Skip elements with zero dimensions and no text/inputs
+    const text = (node.textContent || '').trim();
+    const isInput = node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.tagName === 'SELECT';
+    if (!text && !isInput && !node.getAttribute('aria-label') && !node.getAttribute('title')) {
+      return false;
+    }
+
+    return true;
+  });
 
   let idCounter = 1;
 
-  rawNodes.forEach((node) => {
-    if (!isElementVisible(node)) {
-      return;
-    }
-
+  filteredNodes.forEach((node) => {
     const tagName = node.tagName.toUpperCase();
-    const role = node.getAttribute('role') || undefined;
-    const type = node.getAttribute('type') || undefined;
+    let role = node.getAttribute('role') || undefined;
+    let type = node.getAttribute('type') || undefined;
     const ariaLabel = node.getAttribute('aria-label') || undefined;
     const placeholder = (node as HTMLInputElement).placeholder || undefined;
     const value = (node as HTMLInputElement).value || undefined;
     const href = (node as HTMLAnchorElement).href || undefined;
+
+    // If it's a label containing a radio or checkbox, annotate its role for the LLM
+    if (tagName === 'LABEL') {
+      const childInput = node.querySelector('input');
+      if (childInput) {
+        type = childInput.type;
+        role = role || (childInput.type === 'radio' ? 'radio' : childInput.type === 'checkbox' ? 'checkbox' : undefined);
+      }
+    }
 
     // Clean text representation
     let text = (node.textContent || '').trim().replace(/\s+/g, ' ');

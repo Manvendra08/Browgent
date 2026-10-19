@@ -118,11 +118,29 @@ export async function executeAgentAction(
         if (!target) {
           throw new Error(`Element with id [${action.elementId}] not found in perception tree`);
         }
-        await attachDebugger(tabId);
-        // Click at center of element bounding rect
-        const centerX = target.rect.x + (target.rect.width > 0 ? target.rect.width / 2 : 10);
-        const centerY = target.rect.y + (target.rect.height > 0 ? target.rect.height / 2 : 10);
-        await dispatchClick(tabId, centerX, centerY);
+
+        // 1. In-tab DOM click for React/SPA events
+        if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.sendMessage) {
+          try {
+            await chrome.tabs.sendMessage(tabId, {
+              type: 'CLICK_ELEMENT',
+              elementId: action.elementId,
+            });
+          } catch {
+            // fallback
+          }
+        }
+
+        // 2. CDP hardware mouse click
+        try {
+          await attachDebugger(tabId);
+          const centerX = target.rect.x + (target.rect.width > 0 ? target.rect.width / 2 : 10);
+          const centerY = target.rect.y + (target.rect.height > 0 ? target.rect.height / 2 : 10);
+          await dispatchClick(tabId, centerX, centerY);
+        } catch {
+          // ignore if already triggered by DOM click
+        }
+
         return { success: true };
       }
 
@@ -131,13 +149,32 @@ export async function executeAgentAction(
         if (!target) {
           throw new Error(`Element with id [${action.elementId}] not found in perception tree`);
         }
-        await attachDebugger(tabId);
-        // Focus element first
-        const centerX = target.rect.x + (target.rect.width > 0 ? target.rect.width / 2 : 10);
-        const centerY = target.rect.y + (target.rect.height > 0 ? target.rect.height / 2 : 10);
-        await dispatchClick(tabId, centerX, centerY);
-        await new Promise((r) => setTimeout(r, 100));
-        await dispatchType(tabId, action.text, action.pressEnter);
+
+        // 1. In-tab DOM type
+        if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.sendMessage) {
+          try {
+            await chrome.tabs.sendMessage(tabId, {
+              type: 'TYPE_ELEMENT',
+              elementId: action.elementId,
+              text: action.text,
+            });
+          } catch {
+            // fallback
+          }
+        }
+
+        // 2. CDP hardware typing
+        try {
+          await attachDebugger(tabId);
+          const centerX = target.rect.x + (target.rect.width > 0 ? target.rect.width / 2 : 10);
+          const centerY = target.rect.y + (target.rect.height > 0 ? target.rect.height / 2 : 10);
+          await dispatchClick(tabId, centerX, centerY);
+          await new Promise((r) => setTimeout(r, 100));
+          await dispatchType(tabId, action.text, action.pressEnter);
+        } catch {
+          // ignore
+        }
+
         return { success: true };
       }
 

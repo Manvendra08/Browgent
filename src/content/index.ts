@@ -34,5 +34,56 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'CLICK_ELEMENT') {
+    const el = document.querySelector(`[data-browgent-id="${message.elementId}"]`) as HTMLElement;
+    if (el) {
+      try {
+        el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+      } catch {
+        // ignore
+      }
+      el.focus();
+      el.click();
+
+      // If clicking a label or radio/checkbox, explicitly trigger checked and change events
+      if (el instanceof HTMLInputElement && (el.type === 'radio' || el.type === 'checkbox')) {
+        el.checked = true;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      } else if (el.tagName === 'LABEL') {
+        const input = el.querySelector('input');
+        if (input) {
+          input.checked = true;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+
+      sendResponse({ success: true });
+    } else {
+      sendResponse({ success: false, error: `Element with id ${message.elementId} not found in DOM` });
+    }
+    return true;
+  }
+
+  if (message.type === 'TYPE_ELEMENT') {
+    const el = document.querySelector(`[data-browgent-id="${message.elementId}"]`) as HTMLInputElement | HTMLTextAreaElement;
+    if (el) {
+      try {
+        el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+      } catch {
+        // ignore
+      }
+      el.focus();
+      el.value = message.text;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      sendResponse({ success: true });
+    } else {
+      sendResponse({ success: false, error: `Element with id ${message.elementId} not found in DOM` });
+    }
+    return true;
+  }
+
   return false;
 });
