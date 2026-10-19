@@ -1,4 +1,4 @@
-export type ActionType = 'click' | 'type' | 'scroll' | 'navigate' | 'wait' | 'finish' | 'fail';
+export type ActionType = 'click' | 'type' | 'scroll' | 'navigate' | 'wait' | 'finish' | 'fail' | 'mcp_call';
 
 export interface ClickAction {
   action: 'click';
@@ -38,6 +38,12 @@ export interface FailAction {
   reason: string;
 }
 
+export interface McpCallAction {
+  action: 'mcp_call';
+  tool: string;
+  args?: Record<string, unknown>;
+}
+
 export type AgentAction =
   | ClickAction
   | TypeAction
@@ -45,7 +51,8 @@ export type AgentAction =
   | NavigateAction
   | WaitAction
   | FinishAction
-  | FailAction;
+  | FailAction
+  | McpCallAction;
 
 export interface ActionResult {
   success: boolean;

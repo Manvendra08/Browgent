@@ -59,7 +59,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
       }
 
-      sendResponse({ success: true });
+      // Report the fresh post-scroll rect so CDP fallback clicks the right spot
+      const domRect = el.getBoundingClientRect();
+      sendResponse({
+        success: true,
+        rect: {
+          x: Math.round(domRect.x || domRect.left || 0),
+          y: Math.round(domRect.y || domRect.top || 0),
+          width: Math.round(domRect.width || 0),
+          height: Math.round(domRect.height || 0),
+        },
+      });
     } else {
       sendResponse({ success: false, error: `Element with id ${message.elementId} not found in DOM` });
     }
@@ -78,7 +88,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       el.value = message.text;
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
-      sendResponse({ success: true });
+
+      // Report the fresh post-scroll rect so CDP fallback clicks the right spot
+      const domRect = el.getBoundingClientRect();
+      sendResponse({
+        success: true,
+        rect: {
+          x: Math.round(domRect.x || domRect.left || 0),
+          y: Math.round(domRect.y || domRect.top || 0),
+          width: Math.round(domRect.width || 0),
+          height: Math.round(domRect.height || 0),
+        },
+      });
     } else {
       sendResponse({ success: false, error: `Element with id ${message.elementId} not found in DOM` });
     }

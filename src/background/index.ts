@@ -2,6 +2,7 @@ import { AgentController } from './agent';
 import { LLMConfig } from './llm/types';
 import { Skill } from './skills/types';
 import { AttachedFile } from './files/parser';
+import { isRestrictedUrl, RESTRICTED_URL_HINT } from './restricted';
 
 console.log('[Browgent] Background Service Worker active.');
 
@@ -56,17 +57,10 @@ chrome.runtime.onConnect.addListener((port) => {
         }
 
         const url = activeTab.url || '';
-        if (
-          url.startsWith('chrome://') ||
-          url.startsWith('chrome-extension://') ||
-          url.startsWith('edge://') ||
-          url.startsWith('about:') ||
-          url.startsWith('view-source:') ||
-          url.includes('chromewebstore.google.com')
-        ) {
+        if (isRestrictedUrl(url)) {
           port.postMessage({
             type: 'ERROR',
-            error: `Cannot automate internal browser page (${url || 'new tab'}). Chrome security blocks extensions on internal settings, extensions, and Web Store pages. Please open a regular website (e.g. https://wikipedia.org) and try again.`,
+            error: `Cannot automate internal browser page (${url || 'new tab'}). ${RESTRICTED_URL_HINT}`,
           });
           return;
         }

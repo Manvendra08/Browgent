@@ -21,6 +21,27 @@ export async function queryAnthropic(config: LLMConfig, messages: LLMMessage[]):
       continue;
     }
 
+    if (m.images && m.images.length > 0) {
+      const contentBlocks: unknown[] = [];
+      for (const img of m.images) {
+        // img is a data URL: data:image/png;base64,...
+        const match = img.match(/^data:([^;]+);base64,(.+)$/);
+        if (match) {
+          contentBlocks.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: match[1],
+              data: match[2],
+            },
+          });
+        }
+      }
+      contentBlocks.push({ type: 'text', text: m.content });
+      formattedMessages.push({ role: m.role, content: contentBlocks });
+      continue;
+    }
+
     formattedMessages.push({
       role: m.role,
       content: m.content,

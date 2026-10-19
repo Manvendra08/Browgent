@@ -48,4 +48,28 @@ describe('Action Parser', () => {
     expect(() => parseAgentAction('invalid json')).toThrow();
     expect(() => parseAgentAction(JSON.stringify({ action: 'unknown_action' }))).toThrow();
   });
+
+  it('parses mcp_call action with tool and args', () => {
+    const raw = JSON.stringify({
+      action: 'mcp_call',
+      tool: 'weather.lookup',
+      args: { city: 'Tokyo' },
+    });
+    const parsed = parseAgentAction(raw);
+    expect(parsed).toEqual({
+      action: 'mcp_call',
+      tool: 'weather.lookup',
+      args: { city: 'Tokyo' },
+    });
+  });
+
+  it('defaults mcp_call args to empty object and rejects invalid shapes', () => {
+    expect(parseAgentAction(JSON.stringify({ action: 'mcp_call', tool: 'search' }))).toEqual({
+      action: 'mcp_call',
+      tool: 'search',
+      args: {},
+    });
+    expect(() => parseAgentAction(JSON.stringify({ action: 'mcp_call' }))).toThrow();
+    expect(() => parseAgentAction(JSON.stringify({ action: 'mcp_call', tool: 'x', args: [1] }))).toThrow();
+  });
 });

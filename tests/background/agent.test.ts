@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { AgentController } from '../../src/background/agent';
 
 describe('Agent Controller', () => {
@@ -33,5 +33,27 @@ describe('Agent Controller', () => {
     expect(isLoop1).toBe(false);
     expect(isLoop2).toBe(false);
     expect(isLoop3).toBe(true);
+  });
+
+  it('does not flag consecutive scroll actions as loops', () => {
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 10,
+    });
+
+    for (let i = 0; i < 5; i++) {
+      expect(controller.checkLoop({ action: 'scroll', direction: 'down', amount: 500 })).toBe(false);
+    }
+  });
+
+  it('does not flag consecutive wait actions as loops', () => {
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 10,
+    });
+
+    for (let i = 0; i < 5; i++) {
+      expect(controller.checkLoop({ action: 'wait', seconds: 2 })).toBe(false);
+    }
   });
 });

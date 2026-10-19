@@ -1,6 +1,13 @@
-import { AgentAction, ClickAction, TypeAction, ScrollAction, NavigateAction, FinishAction, FailAction, WaitAction } from './types';
+import { AgentAction, ClickAction, TypeAction, ScrollAction, NavigateAction, FinishAction, FailAction, WaitAction, McpCallAction } from './types';
 import { PerceivedElement } from '../content/types';
 import { attachDebugger, dispatchClick, dispatchType, dispatchScroll, navigateToUrl } from './cdp';
+
+export interface ElementRectPayload {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export function parseAgentAction(raw: string): AgentAction {
   let cleaned = raw.trim();
@@ -101,9 +108,60 @@ export function parseAgentAction(raw: string): AgentAction {
       } as FailAction;
     }
 
+    case 'mcp_call': {
+      if (typeof obj.tool !== 'string' || obj.tool.trim() === '') {
+        throw new Error('MCP tool call requires a non-empty "tool" name');
+      }
+      let args: Record<string, unknown> = {};
+      if (obj.args !== undefined) {
+        if (!obj.args || typeof obj.args !== 'object' || Array.isArray(obj.args)) {
+          throw new Error('MCP tool call "args" must be a JSON object');
+        }
+        args = obj.args as Record<string, unknown>;
+      }
+      return {
+        action: 'mcp_call',
+        tool: obj.tool,
+        args,
+      } as McpCallAction;
+    }
+
     default:
       throw new Error(`Unsupported action type: "${action}"`);
   }
+}
+
+function sendDomAction(
+  tabId: number,
+  payload: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; rect?: ElementRectPayload }> {
+  return new Promise((resolve) => {
+    if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.sendMessage) {
+      resolve({ success: false, error: 'chrome.tabs unavailable' });
+      return;
+    }
+    chrome.tabs.sendMessage(tabId, payload, (response) => {
+      if (chrome.runtime.lastError || !response) {
+        resolve({ success: false, error: chrome.runtime.lastError?.message || 'no response' });
+        return;
+      }
+      if (!response.success) {
+        resolve({ success: false, error: response.error || 'DOM action failed' });
+        return;
+      }
+      resolve({
+        success: true,
+        rect: response.rect,
+      });
+    });
+  });
+}
+
+function elementCenter(rect: ElementRectPayload): { x: number; y: number } {
+  return {
+    x: rect.x + (rect.width > 0 ? rect.width / 2 : 10),
+    y: rect.y + (rect.height > 0 ? rect.height / 2 : 10),
+  };
 }
 
 export async function executeAgentAction(
@@ -119,27 +177,19 @@ export async function executeAgentAction(
           throw new Error(`Element with id [${action.elementId}] not found in perception tree`);
         }
 
-        // 1. In-tab DOM click for React/SPA events
-        if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.sendMessage) {
-          try {
-            await chrome.tabs.sendMessage(tabId, {
-              type: 'CLICK_ELEMENT',
-              elementId: action.elementId,
-            });
-          } catch {
-            // fallback
-          }
+        // 1. Primary: in-tab DOM click (works for React/SPA synthetic events)
+        const domResult = await sendDomAction(tabId, {
+          type: 'CLICK_ELEMENT',
+          elementId: action.elementId,
+        });
+        if (domResult.success) {
+          return { success: true };
         }
 
-        // 2. CDP hardware mouse click
-        try {
-          await attachDebugger(tabId);
-          const centerX = target.rect.x + (target.rect.width > 0 ? target.rect.width / 2 : 10);
-          const centerY = target.rect.y + (target.rect.height > 0 ? target.rect.height / 2 : 10);
-          await dispatchClick(tabId, centerX, centerY);
-        } catch {
-          // ignore if already triggered by DOM click
-        }
+        // 2. Fallback: single CDP hardware click (never both — avoids double events)
+        await attachDebugger(tabId);
+        const center = elementCenter(domResult.rect || target.rect);
+        await dispatchClick(tabId, center.x, center.y);
 
         return { success: true };
       }
@@ -150,30 +200,22 @@ export async function executeAgentAction(
           throw new Error(`Element with id [${action.elementId}] not found in perception tree`);
         }
 
-        // 1. In-tab DOM type
-        if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.sendMessage) {
-          try {
-            await chrome.tabs.sendMessage(tabId, {
-              type: 'TYPE_ELEMENT',
-              elementId: action.elementId,
-              text: action.text,
-            });
-          } catch {
-            // fallback
-          }
+        // 1. Primary: in-tab DOM set value + input/change events (no re-typing)
+        const domResult = await sendDomAction(tabId, {
+          type: 'TYPE_ELEMENT',
+          elementId: action.elementId,
+          text: action.text,
+        });
+        if (domResult.success) {
+          return { success: true };
         }
 
-        // 2. CDP hardware typing
-        try {
-          await attachDebugger(tabId);
-          const centerX = target.rect.x + (target.rect.width > 0 ? target.rect.width / 2 : 10);
-          const centerY = target.rect.y + (target.rect.height > 0 ? target.rect.height / 2 : 10);
-          await dispatchClick(tabId, centerX, centerY);
-          await new Promise((r) => setTimeout(r, 100));
-          await dispatchType(tabId, action.text, action.pressEnter);
-        } catch {
-          // ignore
-        }
+        // 2. Fallback: CDP focus click + hardware typing
+        await attachDebugger(tabId);
+        const center = elementCenter(domResult.rect || target.rect);
+        await dispatchClick(tabId, center.x, center.y);
+        await new Promise((r) => setTimeout(r, 100));
+        await dispatchType(tabId, action.text, action.pressEnter);
 
         return { success: true };
       }
@@ -201,6 +243,11 @@ export async function executeAgentAction(
 
       case 'fail': {
         return { success: false, isTerminal: true, error: action.reason };
+      }
+
+      case 'mcp_call': {
+        // Handled by AgentController (needs the McpClient instance)
+        return { success: false, error: 'MCP tool calls are dispatched by the agent controller' };
       }
     }
   } catch (err: unknown) {

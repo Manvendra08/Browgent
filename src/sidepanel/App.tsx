@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Bot, RefreshCw, Trash2 } from 'lucide-react';
+import { Settings, Bot, Trash2 } from 'lucide-react';
 import { LLMConfig } from '../background/llm/types';
 import { Skill } from '../background/skills/types';
 import { BUILTIN_SKILLS, loadStoredSkills, saveStoredSkills } from '../background/skills/manager';
@@ -72,6 +72,19 @@ export const App: React.FC = () => {
             const last = prev[prev.length - 1];
             if (!last) return prev;
             return [...prev.slice(0, -1), { ...last, action: event.data.action, status: 'success' }];
+          });
+        } else if (event.type === 'action_result') {
+          setFeedItems((prev) => {
+            const last = prev[prev.length - 1];
+            if (!last || last.step !== event.data.step) return prev;
+            return [
+              ...prev.slice(0, -1),
+              {
+                ...last,
+                status: event.data.success ? 'success' : 'error',
+                error: event.data.error,
+              },
+            ];
           });
         } else if (event.type === 'done') {
           setStatus('completed');

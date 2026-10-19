@@ -23,10 +23,19 @@ export async function queryOmniRoute(config: LLMConfig, messages: LLMMessage[]):
   const endpoint = config.baseUrl && config.baseUrl.trim() !== '' ? config.baseUrl : OMNIROUTE_DEFAULT_BASE_URL;
   const resolvedModel = resolveOmniRouteModel(config.model);
 
-  const formattedMessages = messages.map((m) => ({
-    role: m.role,
-    content: m.content,
-  }));
+  const formattedMessages = messages.map((m) => {
+    if (m.images && m.images.length > 0) {
+      const parts: unknown[] = [{ type: 'text', text: m.content }];
+      for (const img of m.images) {
+        parts.push({
+          type: 'image_url',
+          image_url: { url: img },
+        });
+      }
+      return { role: m.role, content: parts };
+    }
+    return { role: m.role, content: m.content };
+  });
 
   const payload = {
     model: resolvedModel,

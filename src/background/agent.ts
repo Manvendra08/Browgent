@@ -1,6 +1,6 @@
 import { LLMConfig, LLMMessage, AgentDecision } from './llm/types';
 import { queryLLM } from './llm/client';
-import { AgentAction } from './types';
+import { AgentAction, McpCallAction, ActionResult } from './types';
 import { DOMState } from '../content/types';
 import { executeAgentAction } from './actions';
 import { ToolRegistry } from './tools/registry';
@@ -8,6 +8,7 @@ import { McpClient } from './mcp/client';
 import { Skill } from './skills/types';
 import { AttachedFile, formatAttachedFilesForPrompt } from './files/parser';
 import { detachDebugger } from './cdp';
+import { isRestrictedUrl, RESTRICTED_URL_HINT } from './restricted';
 
 export type AgentStatus = 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'stopped';
 
@@ -71,8 +72,19 @@ export class AgentController {
   }
 
   public checkLoop(action: AgentAction): boolean {
+    // scroll/wait repeat legitimately on long pages; only track state-changing actions
+    const isTrackable =
+      action.action === 'click' ||
+      action.action === 'type' ||
+      action.action === 'navigate' ||
+      action.action === 'mcp_call';
+
     const serialized = JSON.stringify(action);
     this.actionHistory.push(serialized);
+
+    if (!isTrackable) {
+      return false;
+    }
 
     const len = this.actionHistory.length;
     if (len >= 3) {
@@ -89,7 +101,7 @@ export class AgentController {
     tabId: number,
     goal: string,
     onProgress: (event: {
-      type: 'step' | 'thought' | 'action' | 'done' | 'error';
+      type: 'step' | 'thought' | 'action' | 'action_result' | 'done' | 'error';
       data?: unknown;
     }) => void
   ): Promise<{ success: boolean; summary?: string; error?: string }> {
@@ -181,7 +193,16 @@ export class AgentController {
           return { success: false, error: decision.action.reason };
         }
 
-        execResult = await executeAgentAction(tabId, decision.action, domState.elements);
+        execResult = await this.dispatchAction(tabId, decision.action, domState.elements);
+
+        onProgress({
+          type: 'action_result',
+          data: {
+            step: this.currentStep,
+            success: execResult.success,
+            error: execResult.error,
+          },
+        });
 
         this.history.push({
           step: this.currentStep,
@@ -212,16 +233,9 @@ export class AgentController {
   }
 
   private async ensureContentScript(tabId: number, url?: string): Promise<void> {
-    if (url && (
-      url.startsWith('chrome://') ||
-      url.startsWith('chrome-extension://') ||
-      url.startsWith('edge://') ||
-      url.startsWith('about:') ||
-      url.startsWith('view-source:') ||
-      url.includes('chromewebstore.google.com')
-    )) {
+    if (isRestrictedUrl(url)) {
       throw new Error(
-        `Cannot automate internal browser page (${url}). Chrome restricts extensions on internal and Web Store pages. Please navigate to a standard public website (e.g. https://wikipedia.org or https://news.ycombinator.com).`
+        `Cannot automate internal browser page (${url}). ${RESTRICTED_URL_HINT}`
       );
     }
 
@@ -252,24 +266,11 @@ export class AgentController {
       };
     }
 
-    try {
-      const tab = await chrome.tabs.get(tabId);
-      if (tab.url && (
-        tab.url.startsWith('chrome://') ||
-        tab.url.startsWith('chrome-extension://') ||
-        tab.url.startsWith('edge://') ||
-        tab.url.startsWith('about:') ||
-        tab.url.startsWith('view-source:') ||
-        tab.url.includes('chromewebstore.google.com')
-      )) {
-        throw new Error(
-          `Cannot automate internal browser page (${tab.url}). Chrome blocks extension scripts on internal and Web Store pages. Please switch to a regular website (e.g. https://wikipedia.org) and try again.`
-        );
-      }
-    } catch (e: unknown) {
-      if (e instanceof Error && e.message.includes('Cannot automate internal browser page')) {
-        throw e;
-      }
+    const tab = await chrome.tabs.get(tabId);
+    if (isRestrictedUrl(tab.url)) {
+      throw new Error(
+        `Cannot automate internal browser page (${tab.url}). ${RESTRICTED_URL_HINT}`
+      );
     }
 
     const sendMsg = (): Promise<DOMState> => {
@@ -341,11 +342,12 @@ You MUST respond with a valid JSON block enclosed in \`\`\`json ... \`\`\`:
 {
   "thought": "Your concise step reasoning here...",
   "action": {
-    "action": "click" | "type" | "scroll" | "navigate" | "wait" | "finish" | "fail",
+    "action": "click" | "type" | "scroll" | "navigate" | "wait" | "finish" | "fail" | "mcp_call",
     ...action parameters...
   }
 }
-\`\`\``;
+\`\`\`
+For tools marked [MCP Tool], use {"action": "mcp_call", "tool": "<tool name>", "args": {...}}.`;
 
     // 2. History of past actions in this session
     let historySummary = 'No previous actions taken yet.';
@@ -380,6 +382,42 @@ Output your next JSON action:`;
     ];
 
     return messages;
+  }
+
+  private async dispatchAction(
+    tabId: number,
+    action: AgentAction,
+    elements: DOMState['elements']
+  ): Promise<ActionResult> {
+    if (action.action === 'mcp_call') {
+      return this.executeMcpCall(action);
+    }
+    return executeAgentAction(tabId, action, elements);
+  }
+
+  private async executeMcpCall(action: McpCallAction): Promise<ActionResult> {
+    if (!this.mcpClient) {
+      return {
+        success: false,
+        error: `MCP tool "${action.tool}" requested but no MCP endpoint is configured in Settings.`,
+      };
+    }
+
+    const tool = this.toolRegistry.getTool(action.tool);
+    if (!tool || !tool.isMcp) {
+      return {
+        success: false,
+        error: `MCP tool "${action.tool}" is not registered on the configured endpoint.`,
+      };
+    }
+
+    try {
+      await this.mcpClient.callTool(action.tool, action.args || {});
+      return { success: true };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, error: `MCP tool "${action.tool}" failed: ${msg}` };
+    }
   }
 
   private async cleanup(tabId: number): Promise<void> {
