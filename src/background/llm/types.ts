@@ -20,6 +20,7 @@ export interface LLMMessage {
 export interface AgentDecision {
   thought: string;
   action: AgentAction;
+  actions?: AgentAction[];
   rawResponse?: string;
   toolCall?: {
     name: string;

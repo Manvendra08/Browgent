@@ -48,19 +48,33 @@ export function parseModelResponse(rawContent: string): AgentDecision {
     thought = obj.thought.trim();
   }
 
-  // Parse action: could be nested inside `action: { action: ... }` or flat `{ action: 'click', ... }`
-  let actionPayload: string;
-  if (obj.action && typeof obj.action === 'object') {
-    actionPayload = JSON.stringify(obj.action);
-  } else {
-    actionPayload = JSON.stringify(obj);
+  // Check if multiple actions are returned in an array
+  let actions: import('../types').AgentAction[] | undefined;
+  if (Array.isArray(obj.actions)) {
+    actions = (obj.actions as unknown[]).map((act) => parseAgentAction(JSON.stringify(act)));
+  } else if (Array.isArray(obj.action)) {
+    actions = (obj.action as unknown[]).map((act) => parseAgentAction(JSON.stringify(act)));
   }
 
-  const action = parseAgentAction(actionPayload);
+  // Parse single action fallback
+  let action: import('../types').AgentAction;
+  if (actions && actions.length > 0) {
+    action = actions[0];
+  } else {
+    let actionPayload: string;
+    if (obj.action && typeof obj.action === 'object') {
+      actionPayload = JSON.stringify(obj.action);
+    } else {
+      actionPayload = JSON.stringify(obj);
+    }
+    action = parseAgentAction(actionPayload);
+    actions = [action];
+  }
 
   return {
     thought: thought || 'Executing browser action',
     action,
+    actions,
     rawResponse: rawContent,
   };
 }

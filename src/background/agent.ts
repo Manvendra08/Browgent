@@ -183,99 +183,118 @@ export class AgentController {
           data: { step: this.currentStep, thought: decision.thought },
         });
 
-        onProgress({
-          type: 'action',
-          data: { step: this.currentStep, action: decision.action },
-        });
+        // 4. Execute Action Batch (supports single action or multi-action chaining)
+        const actionsToExecute = (decision.actions && decision.actions.length > 0)
+          ? decision.actions
+          : [decision.action];
 
-        // 4. Check for repeating action loops
-        if (this.checkLoop(decision.action)) {
-          throw new Error(`Loop detected: Agent repeated the exact action 3 times consecutively (${JSON.stringify(decision.action)}). Aborting.`);
-        }
+        let terminalReached = false;
 
-        // 5. Execute Action
-        let execResult: { success: boolean; error?: string; isTerminal?: boolean; summary?: string };
+        for (let i = 0; i < actionsToExecute.length; i++) {
+          const action = actionsToExecute[i];
 
-        if (decision.action.action === 'finish') {
-          const claimedSummary = decision.action.summary || '';
-          const verdict = await this.verifyCompletion(tabId, goal, claimedSummary);
+          onProgress({
+            type: 'action',
+            data: { step: this.currentStep, action, subIndex: i, total: actionsToExecute.length },
+          });
 
-          const canRejectAgain = this.finishRejections < MAX_FINISH_REJECTIONS && (this.currentStep + 1 < this.maxSteps);
-          if (!verdict.confirmed && canRejectAgain) {
-            this.finishRejections++;
+          // Check for repeating action loops
+          if (this.checkLoop(action)) {
+            throw new Error(`Loop detected: Agent repeated the exact action 3 times consecutively (${JSON.stringify(action)}). Aborting.`);
+          }
+
+          if (action.action === 'finish') {
+            const claimedSummary = action.summary || '';
+            const verdict = await this.verifyCompletion(tabId, goal, claimedSummary);
+
+            const canRejectAgain = this.finishRejections < MAX_FINISH_REJECTIONS && (this.currentStep + 1 < this.maxSteps);
+            if (!verdict.confirmed && canRejectAgain) {
+              this.finishRejections++;
+              this.history.push({
+                step: this.currentStep,
+                thought: decision.thought,
+                action,
+                success: false,
+                error: `Finish rejected by completion verifier: ${verdict.evidence}`,
+                timestamp: Date.now(),
+              });
+              onProgress({
+                type: 'action_result',
+                data: {
+                  step: this.currentStep,
+                  success: false,
+                  error: `Premature finish blocked: ${verdict.evidence} — continuing task`,
+                },
+              });
+              await this.stabilizePage(tabId, action);
+              terminalReached = true;
+              break;
+            }
+
+            this.status = 'completed';
+            const finalSummary = verdict.confirmed
+              ? claimedSummary
+              : `${claimedSummary} (accepted without verified on-page confirmation: ${verdict.evidence})`;
             this.history.push({
               step: this.currentStep,
               thought: decision.thought,
-              action: decision.action,
-              success: false,
-              error: `Finish rejected by completion verifier: ${verdict.evidence}`,
+              action,
+              success: true,
               timestamp: Date.now(),
             });
-            onProgress({
-              type: 'action_result',
-              data: {
-                step: this.currentStep,
-                success: false,
-                error: `Premature finish blocked: ${verdict.evidence} — continuing task`,
-              },
-            });
-            await new Promise((r) => setTimeout(r, 1200));
-            continue;
+            await this.cleanup(tabId);
+            onProgress({ type: 'done', data: { summary: finalSummary } });
+            return { success: true, summary: finalSummary };
           }
 
-          this.status = 'completed';
-          const finalSummary = verdict.confirmed
-            ? claimedSummary
-            : `${claimedSummary} (accepted without verified on-page confirmation: ${verdict.evidence})`;
+          if (action.action === 'fail') {
+            this.status = 'failed';
+            this.history.push({
+              step: this.currentStep,
+              thought: decision.thought,
+              action,
+              success: false,
+              error: action.reason,
+              timestamp: Date.now(),
+            });
+            await this.cleanup(tabId);
+            onProgress({ type: 'error', data: { error: action.reason } });
+            return { success: false, error: action.reason };
+          }
+
+          const execResult = await this.dispatchAction(tabId, action, domState.elements);
+
+          onProgress({
+            type: 'action_result',
+            data: {
+              step: this.currentStep,
+              success: execResult.success,
+              error: execResult.error,
+            },
+          });
+
           this.history.push({
             step: this.currentStep,
-            thought: decision.thought,
-            action: decision.action,
-            success: true,
-            timestamp: Date.now(),
-          });
-          await this.cleanup(tabId);
-          onProgress({ type: 'done', data: { summary: finalSummary } });
-          return { success: true, summary: finalSummary };
-        }
-
-        if (decision.action.action === 'fail') {
-          this.status = 'failed';
-          this.history.push({
-            step: this.currentStep,
-            thought: decision.thought,
-            action: decision.action,
-            success: false,
-            error: decision.action.reason,
-            timestamp: Date.now(),
-          });
-          await this.cleanup(tabId);
-          onProgress({ type: 'error', data: { error: decision.action.reason } });
-          return { success: false, error: decision.action.reason };
-        }
-
-        execResult = await this.dispatchAction(tabId, decision.action, domState.elements);
-
-        onProgress({
-          type: 'action_result',
-          data: {
-            step: this.currentStep,
+            thought: i === 0 ? decision.thought : `Chained action ${i + 1}/${actionsToExecute.length}`,
+            action,
             success: execResult.success,
             error: execResult.error,
-          },
-        });
+            timestamp: Date.now(),
+          });
 
-        this.history.push({
-          step: this.currentStep,
-          thought: decision.thought,
-          action: decision.action,
-          success: execResult.success,
-          error: execResult.error,
-          timestamp: Date.now(),
-        });
+          // Short 100ms pause between chained sub-actions
+          if (i < actionsToExecute.length - 1) {
+            await new Promise((r) => setTimeout(r, 100));
+          }
+        }
 
-        // Wait for page stabilization and DOM mutations
-        await new Promise((r) => setTimeout(r, 1200));
+        if (terminalReached) {
+          continue;
+        }
+
+        // Adaptive DOM stabilization between turns (250ms default or tab load wait)
+        const lastAction = actionsToExecute[actionsToExecute.length - 1];
+        await this.stabilizePage(tabId, lastAction);
       }
 
       // Max steps exceeded
@@ -388,10 +407,10 @@ ${fileSection}
 INSTRUCTIONS:
 1. Carefully observe the current page URL, title, and the numbered interactive elements list.
 2. Formulate your reasoning and internal monologue in the "thought" field.
-3. Choose EXACTLY ONE action to perform this turn.
+3. Choose an action to perform, OR provide an array of actions in "actions" if you can execute sequential chained steps safely without needing intermediate visual re-evaluation (e.g. click radio option [index 4] then click submit [index 12]).
 4. FOR QUIZZES, FORMS & MULTIPLE-CHOICE TESTS:
    - Read the question and locate the corresponding answer option among the numbered elements.
-   - You MUST FIRST CLICK the specific radio/choice element corresponding to your chosen answer BEFORE clicking "Submit" or "Next"!
+   - You MUST FIRST CLICK the specific radio/choice element corresponding to your chosen answer BEFORE clicking "Submit" or "Next"! (Tip: you can batch both clicks into "actions: [...]" in a single turn).
    - Do not hallucinate that an option is selected without having clicked it.
    - After selecting the answer, click Submit (if required). Once the submission is confirmed, click Next to advance to subsequent questions.
    - In multi-question quizzes, EVERY question must be visited and answered: if question-number pills, pagination dots, or a list shows any UNANSWERED items (grey/unselected numbers), navigate to them and answer them BEFORE submitting or finishing.
@@ -408,6 +427,16 @@ You MUST respond with a valid JSON block enclosed in \`\`\`json ... \`\`\`:
     "action": "click" | "type" | "scroll" | "navigate" | "wait" | "finish" | "fail" | "mcp_call",
     ...action parameters...
   }
+}
+\`\`\`
+OR for chained actions in a single turn (greatly speeds up execution):
+\`\`\`json
+{
+  "thought": "Your concise step reasoning here...",
+  "actions": [
+    { "action": "click", "index": 4 },
+    { "action": "click", "index": 12 }
+  ]
 }
 \`\`\`
 For tools marked [MCP Tool], use {"action": "mcp_call", "tool": "<tool name>", "args": {...}}.`;
@@ -530,6 +559,27 @@ ${domState.formattedPrompt}`;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return { confirmed: true, evidence: `Verification LLM call failed (${msg}) — accepting finish` };
+    }
+  }
+
+  private async stabilizePage(tabId: number, lastAction?: AgentAction): Promise<void> {
+    if (lastAction?.action === 'navigate') {
+      if (typeof chrome !== 'undefined' && chrome.tabs) {
+        for (let i = 0; i < 15; i++) {
+          try {
+            const tab = await chrome.tabs.get(tabId);
+            if (tab.status === 'complete') break;
+          } catch {
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      } else {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    } else {
+      // Fast adaptive settle: 250ms (replaces hardcoded 1200ms delay)
+      await new Promise((r) => setTimeout(r, 250));
     }
   }
 

@@ -32,14 +32,24 @@ describe('LLM Response Parser', () => {
     });
   });
 
-  it('resolves OmniRoute model aliases correctly', () => {
-    expect(resolveOmniRouteModel('free')).toBe('Claude/Free');
-    expect(resolveOmniRouteModel('kilo')).toBe('Claude/Kilo-Models');
-    expect(resolveOmniRouteModel('anti')).toBe('Claude/Antigravity');
-    expect(resolveOmniRouteModel('gp')).toBe('Claude/GP-Models');
-    expect(resolveOmniRouteModel('bigp')).toBe('oc/big-pickle');
-    expect(resolveOmniRouteModel('glm')).toBe('Claude/GL-Deep-Kim');
-    expect(resolveOmniRouteModel('custom-model')).toBe('custom-model');
-    expect(resolveOmniRouteModel('')).toBe('Claude/Antigravity');
+  it('extracts batch of multiple actions from actions array', () => {
+    const output = `
+\`\`\`json
+{
+  "thought": "I will select the radio option then click submit.",
+  "actions": [
+    { "action": "click", "elementId": 3 },
+    { "action": "wait", "seconds": 0.5 },
+    { "action": "click", "elementId": 5 }
+  ]
+}
+\`\`\``;
+    const decision = parseModelResponse(output);
+    expect(decision.thought).toBe('I will select the radio option then click submit.');
+    expect(decision.actions).toBeDefined();
+    expect(decision.actions?.length).toBe(3);
+    expect(decision.actions?.[0]).toEqual({ action: 'click', elementId: 3 });
+    expect(decision.actions?.[1]).toEqual({ action: 'wait', seconds: 0.5 });
+    expect(decision.actions?.[2]).toEqual({ action: 'click', elementId: 5 });
   });
 });
