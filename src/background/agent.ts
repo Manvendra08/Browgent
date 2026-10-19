@@ -1,5 +1,5 @@
 import { LLMConfig, LLMMessage, AgentDecision } from './llm/types';
-import { queryLLM } from './llm/client';
+import { queryLLM, queryLLMRaw } from './llm/client';
 import { AgentAction, McpCallAction, ActionResult } from './types';
 import { DOMState } from '../content/types';
 import { executeAgentAction } from './actions';
@@ -11,6 +11,36 @@ import { detachDebugger } from './cdp';
 import { isRestrictedUrl, RESTRICTED_URL_HINT } from './restricted';
 
 export type AgentStatus = 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'stopped';
+
+export const MAX_FINISH_REJECTIONS = 2;
+
+interface CompletionVerdict {
+  confirmed: boolean;
+  evidence: string;
+}
+
+function parseCompletionVerdict(raw: string): CompletionVerdict {
+  const text = raw.trim();
+  try {
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const candidate = (fenced ? fenced[1] : text);
+    const start = candidate.indexOf('{');
+    const end = candidate.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+      const obj = JSON.parse(candidate.slice(start, end + 1)) as Record<string, unknown>;
+      if (obj && typeof obj === 'object') {
+        const confirmed = obj.confirmed === true || obj.complete === true || obj.verdict === 'complete';
+        const evidence = typeof obj.evidence === 'string' && obj.evidence.trim() !== ''
+          ? obj.evidence.trim()
+          : JSON.stringify(obj).slice(0, 300);
+        return { confirmed, evidence };
+      }
+    }
+  } catch {
+    // fall through to failsafe
+  }
+  return { confirmed: true, evidence: `Audit response was not parseable JSON: "${text.slice(0, 200)}"` };
+}
 
 export interface AgentStepLog {
   step: number;
@@ -41,10 +71,11 @@ export class AgentController {
   private history: AgentStepLog[] = [];
   private stopRequested: boolean = false;
   private actionHistory: string[] = [];
+  private finishRejections: number = 0;
 
   constructor(options: AgentOptions) {
     this.llmConfig = options.llmConfig;
-    this.maxSteps = options.maxSteps ?? 15;
+    this.maxSteps = options.maxSteps ?? 25;
     this.skills = options.skills ?? [];
     this.files = options.files ?? [];
     this.toolRegistry = new ToolRegistry();
@@ -110,6 +141,7 @@ export class AgentController {
     this.currentStep = 0;
     this.history = [];
     this.actionHistory = [];
+    this.finishRejections = 0;
 
     // Initialize MCP tools if endpoint is provided
     if (this.mcpClient) {
@@ -165,7 +197,36 @@ export class AgentController {
         let execResult: { success: boolean; error?: string; isTerminal?: boolean; summary?: string };
 
         if (decision.action.action === 'finish') {
+          const claimedSummary = decision.action.summary || '';
+          const verdict = await this.verifyCompletion(tabId, goal, claimedSummary);
+
+          const canRejectAgain = this.finishRejections < MAX_FINISH_REJECTIONS && (this.currentStep + 1 < this.maxSteps);
+          if (!verdict.confirmed && canRejectAgain) {
+            this.finishRejections++;
+            this.history.push({
+              step: this.currentStep,
+              thought: decision.thought,
+              action: decision.action,
+              success: false,
+              error: `Finish rejected by completion verifier: ${verdict.evidence}`,
+              timestamp: Date.now(),
+            });
+            onProgress({
+              type: 'action_result',
+              data: {
+                step: this.currentStep,
+                success: false,
+                error: `Premature finish blocked: ${verdict.evidence} — continuing task`,
+              },
+            });
+            await new Promise((r) => setTimeout(r, 1200));
+            continue;
+          }
+
           this.status = 'completed';
+          const finalSummary = verdict.confirmed
+            ? claimedSummary
+            : `${claimedSummary} (accepted without verified on-page confirmation: ${verdict.evidence})`;
           this.history.push({
             step: this.currentStep,
             thought: decision.thought,
@@ -174,8 +235,8 @@ export class AgentController {
             timestamp: Date.now(),
           });
           await this.cleanup(tabId);
-          onProgress({ type: 'done', data: { summary: decision.action.summary } });
-          return { success: true, summary: decision.action.summary };
+          onProgress({ type: 'done', data: { summary: finalSummary } });
+          return { success: true, summary: finalSummary };
         }
 
         if (decision.action.action === 'fail') {
@@ -333,7 +394,9 @@ INSTRUCTIONS:
    - You MUST FIRST CLICK the specific radio/choice element corresponding to your chosen answer BEFORE clicking "Submit" or "Next"!
    - Do not hallucinate that an option is selected without having clicked it.
    - After selecting the answer, click Submit (if required). Once the submission is confirmed, click Next to advance to subsequent questions.
-5. If you have fulfilled the user goal, call the "finish" action with a thorough summary.
+   - In multi-question quizzes, EVERY question must be visited and answered: if question-number pills, pagination dots, or a list shows any UNANSWERED items (grey/unselected numbers), navigate to them and answer them BEFORE submitting or finishing.
+   - NEVER claim from memory that "all responses have been entered" — verify on the page itself.
+5. Only call "finish" with concrete on-page evidence of completion in the summary (e.g. completion banner, score screen, all questions marked answered). An auditor re-reads the live page when finish is called; premature finishes are rejected and cost extra steps, so revisit unanswered items first.
 6. If the goal is impossible, call "fail" with the explanation.
 
 RESPONSE FORMAT:
@@ -417,6 +480,56 @@ Output your next JSON action:`;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: `MCP tool "${action.tool}" failed: ${msg}` };
+    }
+  }
+
+  private buildVerificationMessages(
+    goal: string,
+    summary: string,
+    domState: DOMState
+  ): LLMMessage[] {
+    const systemPrompt = `You are an independent completion auditor for a browser automation run.
+Decide whether the USER GOAL is verifiably complete, based ONLY on the CURRENT PAGE STATE provided.
+Do NOT trust the agent's claims. Look for hard on-page evidence of completion: success/completion banners, score or result screens, submission confirmation messages, or all progress indicators marked answered/done.
+Unfinished quizzes, tests, assessment flows, or multi-step forms (e.g. unselected pagination dots, question numbers still without an answered/highlighted state, a visible question with unanswered inputs, or NEXT/SUBMIT buttons still waiting for input) mean the goal is NOT complete.
+Respond ONLY with a JSON object in this exact format:
+\`\`\`json
+{"confirmed": true | false, "evidence": "<what you actually see that proves or disproves completion>"}
+\`\`\``;
+
+    const userPrompt = `USER GOAL: "${goal}"
+
+AGENT'S FINAL CLAIM: "${summary}"
+
+CURRENT PAGE:
+- URL: ${domState.url}
+- Title: ${domState.title}
+
+PAGE ELEMENTS CURRENTLY VISIBLE:
+${domState.formattedPrompt}`;
+
+    return [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ];
+  }
+
+  private async verifyCompletion(tabId: number, goal: string, summary: string): Promise<CompletionVerdict> {
+    let domState: DOMState;
+    try {
+      domState = await this.capturePageDOM(tabId);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { confirmed: true, evidence: `Could not re-read page for verification (${msg}) — accepting finish` };
+    }
+
+    try {
+      const messages = this.buildVerificationMessages(goal, summary, domState);
+      const raw = await queryLLMRaw(this.llmConfig, messages);
+      return parseCompletionVerdict(raw);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { confirmed: true, evidence: `Verification LLM call failed (${msg}) — accepting finish` };
     }
   }
 

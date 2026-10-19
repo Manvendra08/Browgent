@@ -65,30 +65,27 @@ export function parseModelResponse(rawContent: string): AgentDecision {
   };
 }
 
-export async function queryLLM(config: LLMConfig, messages: LLMMessage[]): Promise<AgentDecision> {
-  let responseText: string;
-
+export async function queryLLMRaw(config: LLMConfig, messages: LLMMessage[]): Promise<string> {
   switch (config.provider) {
     case 'omniroute':
-      responseText = await queryOmniRoute(config, messages);
-      break;
+      return queryOmniRoute(config, messages);
 
     case 'openai':
     case 'openai-compat':
-      responseText = await queryOpenAI(config, messages);
-      break;
+      return queryOpenAI(config, messages);
 
     case 'gemini':
-      responseText = await queryGemini(config, messages);
-      break;
+      return queryGemini(config, messages);
 
     case 'anthropic':
-      responseText = await queryAnthropic(config, messages);
-      break;
+      return queryAnthropic(config, messages);
 
     default:
       throw new Error(`Unsupported LLM provider: "${config.provider}"`);
   }
+}
 
+export async function queryLLM(config: LLMConfig, messages: LLMMessage[]): Promise<AgentDecision> {
+  const responseText = await queryLLMRaw(config, messages);
   return parseModelResponse(responseText);
 }

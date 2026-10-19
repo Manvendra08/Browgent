@@ -42,7 +42,7 @@ export const App: React.FC = () => {
   const [skills, setSkills] = useState<Skill[]>(BUILTIN_SKILLS);
   const [files, setFiles] = useState<AttachedFile[]>([]);
   const [config, setConfig] = useState<LLMConfig>(DEFAULT_CONFIG);
-  const [maxSteps, setMaxSteps] = useState<number>(15);
+  const [maxSteps, setMaxSteps] = useState<number>(25);
   const [mcpEndpoint, setMcpEndpoint] = useState<string>('');
 
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);

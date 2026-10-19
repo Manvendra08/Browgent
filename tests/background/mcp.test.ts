@@ -4,11 +4,13 @@ import { McpClient } from '../../src/background/mcp/client';
 
 vi.mock('../../src/background/llm/client', () => ({
   queryLLM: vi.fn(),
+  queryLLMRaw: vi.fn(),
 }));
 
-import { queryLLM } from '../../src/background/llm/client';
+import { queryLLM, queryLLMRaw } from '../../src/background/llm/client';
 
 const mockedQueryLLM = vi.mocked(queryLLM);
+const mockedQueryLLMRaw = vi.mocked(queryLLMRaw);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -23,6 +25,7 @@ describe('AgentController MCP dispatch', () => {
       result: { tools: [{ name: 'weather.lookup', description: 'Weather lookup', inputSchema: { type: 'object' } }] },
     }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
+    mockedQueryLLMRaw.mockResolvedValue('```json\n{"confirmed": true, "evidence": "Result displayed on page"}\n```');
 
     const events: Array<{ type: string; data?: unknown }> = [];
 

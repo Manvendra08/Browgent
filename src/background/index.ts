@@ -71,7 +71,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
         activeAgent = new AgentController({
           llmConfig,
-          maxSteps: maxSteps || 15,
+          maxSteps: maxSteps || 25,
           skills: skills || [],
           files: files || [],
           mcpEndpoint,
