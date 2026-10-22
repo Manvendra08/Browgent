@@ -316,6 +316,16 @@ export async function executeAgentAction(
           throw new Error(`Element with id [${action.elementId}] not found in perception tree`);
         }
 
+        let initialUrl: string | undefined;
+        if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.get === 'function') {
+          try {
+            const initialTab = await chrome.tabs.get(tabId);
+            initialUrl = initialTab?.url;
+          } catch {
+            // ignore
+          }
+        }
+
         // 1. Primary: in-tab DOM set value + input/change events (no re-typing)
         const domResult = await sendDomAction(tabId, {
           type: 'TYPE_ELEMENT',
@@ -323,6 +333,27 @@ export async function executeAgentAction(
           text: action.text,
           pressEnter: action.pressEnter,
         });
+
+        // If typing + Enter initiated page navigation / form submit, handle transition cleanly:
+        if (!domResult.success && typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.get === 'function') {
+          try {
+            const currentTab = await chrome.tabs.get(tabId);
+            const urlChanged = Boolean(initialUrl && currentTab?.url && currentTab.url !== initialUrl);
+            const isLoading = currentTab?.status === 'loading';
+            const isBfCacheError = Boolean(
+              domResult.error && (
+                domResult.error.includes('back/forward cache') ||
+                domResult.error.includes('message channel closed')
+              )
+            );
+            if (urlChanged || isLoading || isBfCacheError) {
+              return { success: true };
+            }
+          } catch {
+            // ignore
+          }
+        }
+
         if (domResult.success) {
           return { success: true };
         }

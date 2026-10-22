@@ -11,6 +11,15 @@ import {
 
 console.log('[Browgent] Content script active.');
 
+if (typeof window !== 'undefined') {
+  const win = window as unknown as { __BROWGENT_CONTENT_LOADED__?: boolean };
+  if (win.__BROWGENT_CONTENT_LOADED__) {
+    // Already initialized in this document/frame
+  } else {
+    win.__BROWGENT_CONTENT_LOADED__ = true;
+  }
+}
+
 function resolveOwnedElement(elementId: number): HTMLElement | null {
   const candidates = document.querySelectorAll(`[data-browgent-id="${elementId}"]`);
   for (const candidate of Array.from(candidates)) {
@@ -370,7 +379,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         targetInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
         targetInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
         targetInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-        if (targetInput instanceof HTMLInputElement && targetInput.form && typeof targetInput.form.requestSubmit === 'function') {
+        if (
+          (targetInput instanceof HTMLInputElement || targetInput instanceof HTMLTextAreaElement) &&
+          targetInput.form &&
+          typeof targetInput.form.requestSubmit === 'function'
+        ) {
           try {
             targetInput.form.requestSubmit();
           } catch {

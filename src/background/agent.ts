@@ -236,6 +236,18 @@ export class AgentController {
     }
 
     try {
+      // Pre-prime content script if chrome.tabs is available
+      if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.get === 'function') {
+        try {
+          const tab = await chrome.tabs.get(tabId);
+          if (tab && tab.url && !isRestrictedUrl(tab.url)) {
+            await this.ensureContentScript(tabId, tab.url);
+          }
+        } catch {
+          // ignore; capturePageDOM handles recovery
+        }
+      }
+
       while (this.currentStep < this.maxSteps) {
         if (this.stopRequested) {
           await this.cleanup(tabId);
@@ -682,6 +694,10 @@ INSTRUCTIONS:
 7. FOR SEARCH, RESEARCH, PRICE COMPARISON & INFORMATION RETRIEVAL GOALS:
    - When the user asks to "search", "find", "check price", "get cheapest", "compare", or look up information (e.g. flight prices, hotel rates, search results):
    - The primary deliverable is finding and reporting the answer!
+   - For travel / flight / hotel searches (e.g. Google Flights, Skyscanner, search engine results):
+     - If on Google search, type the route query (e.g. "cheapest flight from pune to lucknow on 5th november") with pressEnter: true, then click into the flight results or navigate.
+     - On Google Flights or travel booking pages, interact with the trip type (e.g. One way), departure date picker, and click "Search" or "Done".
+     - When the flight/price table loads, note the cheapest options (airlines, departure/arrival times, durations, stops, and exact prices in ₹ or $).
    - As soon as the relevant information, flight options, prices, or search results are displayed on the page (in the elements list, page text, or screenshot), CALL "finish" WITH A COMPLETE, STRUCTURED SUMMARY OF THE RESULTS!
    - Provide concrete details (e.g., flight airlines, departure/arrival times, durations, stops, and exact prices in ₹ or $).
    - Do NOT keep clicking redundant buttons or links if the answer is already visible on the screen.
@@ -690,6 +706,8 @@ INSTRUCTIONS:
    - Do NOT repeat the failed action. Re-evaluate the new page state, and choose an alternative action or read the results.
 10. If the goal is impossible, call "fail" with the explanation.
 11. The "wait" action is capped at 10 seconds per call; for longer pauses issue several waits.
+12. FOR NAVIGATION & URL CHANGES:
+    - If you need to open or navigate to a target website to achieve the goal, use the "navigate" action (e.g. {"action": "navigate", "url": "https://www.google.com"}).
 
 RESPONSE FORMAT:
 You MUST respond with a valid JSON block enclosed in \`\`\`json ... \`\`\`:

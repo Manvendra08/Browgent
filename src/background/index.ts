@@ -2,12 +2,52 @@ import { AgentController } from './agent';
 import { LLMConfig } from './llm/types';
 import { Skill } from './skills/types';
 import { AttachedFile } from './files/parser';
-import { isRestrictedUrl, RESTRICTED_URL_HINT } from './restricted';
+import {
+  isRestrictedUrl,
+  isNewTabPage,
+  extractTargetUrlFromGoal,
+  RESTRICTED_URL_HINT,
+} from './restricted';
 
 console.log('[Browgent] Background Service Worker active.');
 
 let activeAgent: AgentController | null = null;
 let sidepanelPort: chrome.runtime.Port | null = null;
+
+async function waitForTabLoaded(tabId: number, timeoutMs = 15000): Promise<chrome.tabs.Tab | null> {
+  const isTest = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+  if (isTest) {
+    if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.get === 'function') {
+      try {
+        return await chrome.tabs.get(tabId);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  const start = Date.now();
+  await new Promise((r) => setTimeout(r, 200));
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab && tab.status === 'complete' && tab.url && !isNewTabPage(tab.url)) {
+        return tab;
+      }
+    } catch {
+      // Tab may be navigating or transitioning
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+
+  try {
+    return await chrome.tabs.get(tabId);
+  } catch {
+    return null;
+  }
+}
 
 // Keep-alive heartbeat interval to prevent service worker termination
 setInterval(() => {
@@ -54,17 +94,48 @@ chrome.runtime.onConnect.addListener((port) => {
         if (!tabs || tabs.length === 0) {
           tabs = await chrome.tabs.query({ active: true, currentWindow: true });
         }
-        const activeTab = tabs[0];
+        let activeTab = tabs[0];
         if (!activeTab || !activeTab.id) {
           port.postMessage({ type: 'ERROR', error: 'No active tab found to operate on.' });
           return;
         }
 
-        const url = activeTab.url || '';
-        if (isRestrictedUrl(url)) {
+        let currentUrl = activeTab.url || '';
+        const onNewTab = isNewTabPage(currentUrl);
+        const explicitTarget = extractTargetUrlFromGoal(goal);
+
+        // If the user starts from a new tab or requests a target site, auto-navigate
+        if (onNewTab || explicitTarget) {
+          const destinationUrl = explicitTarget || 'https://www.google.com';
+
+          if (isRestrictedUrl(destinationUrl)) {
+            port.postMessage({
+              type: 'ERROR',
+              error: `Cannot automate internal browser page (${destinationUrl}). ${RESTRICTED_URL_HINT}`,
+            });
+            return;
+          }
+
+          if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.update === 'function') {
+            try {
+              await chrome.tabs.update(activeTab.id, { url: destinationUrl });
+              const loadedTab = await waitForTabLoaded(activeTab.id);
+              if (loadedTab) {
+                activeTab = loadedTab;
+                currentUrl = activeTab.url || destinationUrl;
+              } else {
+                currentUrl = destinationUrl;
+              }
+            } catch (navErr) {
+              console.warn('[Browgent] Auto-navigation error:', navErr);
+            }
+          }
+        }
+
+        if (isRestrictedUrl(currentUrl)) {
           port.postMessage({
             type: 'ERROR',
-            error: `Cannot automate internal browser page (${url || 'new tab'}). ${RESTRICTED_URL_HINT}`,
+            error: `Cannot automate internal browser page (${currentUrl || 'new tab'}). ${RESTRICTED_URL_HINT}`,
           });
           return;
         }

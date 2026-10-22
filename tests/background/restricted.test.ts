@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { isRestrictedUrl } from '../../src/background/restricted';
+import {
+  isRestrictedUrl,
+  isNewTabPage,
+  extractTargetUrlFromGoal,
+} from '../../src/background/restricted';
 import { parseAgentAction, MAX_WAIT_SECONDS } from '../../src/background/actions';
 
 describe('Restricted URL policy', () => {
@@ -37,6 +41,59 @@ describe('Restricted URL policy', () => {
     expect(isRestrictedUrl('')).toBe(true);
     expect(isRestrictedUrl(undefined)).toBe(true);
     expect(isRestrictedUrl(null)).toBe(true);
+  });
+});
+
+describe('New tab detection', () => {
+  it('recognizes blank and new tab URLs', () => {
+    expect(isNewTabPage('chrome://newtab')).toBe(true);
+    expect(isNewTabPage('chrome://newtab/')).toBe(true);
+    expect(isNewTabPage('chrome://new-tab-page')).toBe(true);
+    expect(isNewTabPage('chrome://new-tab-page/')).toBe(true);
+    expect(isNewTabPage('about:blank')).toBe(true);
+    expect(isNewTabPage('edge://newtab')).toBe(true);
+    expect(isNewTabPage('')).toBe(true);
+    expect(isNewTabPage(undefined)).toBe(true);
+    expect(isNewTabPage(null)).toBe(true);
+  });
+
+  it('does not classify standard websites or non-newtab internal pages as new tab', () => {
+    expect(isNewTabPage('https://www.google.com')).toBe(false);
+    expect(isNewTabPage('https://example.com')).toBe(false);
+    expect(isNewTabPage('chrome://settings')).toBe(false);
+    expect(isNewTabPage('chrome://extensions')).toBe(false);
+  });
+});
+
+describe('Target URL extraction from goal', () => {
+  it('extracts explicit http/https URLs', () => {
+    expect(extractTargetUrlFromGoal('go to https://flights.google.com and search')).toBe('https://flights.google.com');
+    expect(extractTargetUrlFromGoal('open http://example.com/test')).toBe('http://example.com/test');
+  });
+
+  it('extracts domain names preceded by action verbs', () => {
+    expect(
+      extractTargetUrlFromGoal('go to google.com and Search cheapest from pune to lucknow on 5th november')
+    ).toBe('https://google.com');
+    expect(extractTargetUrlFromGoal('open amazon.in and search for shoes')).toBe('https://amazon.in');
+    expect(extractTargetUrlFromGoal('navigate to wikipedia.org/wiki/SpaceX')).toBe('https://wikipedia.org/wiki/SpaceX');
+    expect(extractTargetUrlFromGoal('visit flights.google.com')).toBe('https://flights.google.com');
+  });
+
+  it('extracts domain names preceded by prepositions', () => {
+    expect(extractTargetUrlFromGoal('search cheapest flights on google.com')).toBe('https://google.com');
+  });
+
+  it('rejects restricted destinations', () => {
+    expect(extractTargetUrlFromGoal('go to chrome://settings')).toBe(null);
+    expect(extractTargetUrlFromGoal('open http://169.254.169.254/latest')).toBe(null);
+    expect(extractTargetUrlFromGoal('navigate to file:///C:/passwords.txt')).toBe(null);
+  });
+
+  it('returns null when no domain or target URL is specified', () => {
+    expect(extractTargetUrlFromGoal('Search cheapest from pune to lucknow on 5th november')).toBe(null);
+    expect(extractTargetUrlFromGoal('click the next button')).toBe(null);
+    expect(extractTargetUrlFromGoal('')).toBe(null);
   });
 });
 

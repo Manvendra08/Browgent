@@ -24,6 +24,8 @@ vi.mock('../../src/background/agent', () => ({
 let connectListener: (port: FakePort) => void;
 let installedListener: () => void;
 let queryMock: ReturnType<typeof vi.fn>;
+let updateMock: ReturnType<typeof vi.fn>;
+let getMock: ReturnType<typeof vi.fn>;
 let setPanelBehavior: ReturnType<typeof vi.fn>;
 
 function makePort(name = 'browgent-sidepanel'): FakePort {
@@ -58,6 +60,18 @@ beforeEach(async () => {
   queryMock = vi.fn().mockResolvedValue([
     { id: 42, title: 'Quiz', url: 'https://example.com/quiz', favIconUrl: 'icon.png' },
   ]);
+  updateMock = vi.fn().mockImplementation(async (id: number, opts: { url: string }) => ({
+    id,
+    url: opts.url,
+    title: 'Navigated Page',
+    status: 'complete',
+  }));
+  getMock = vi.fn().mockImplementation(async (id: number) => ({
+    id,
+    url: 'https://www.google.com',
+    title: 'Google',
+    status: 'complete',
+  }));
   setPanelBehavior = vi.fn().mockResolvedValue(undefined);
 
   (globalThis as unknown as { chrome: unknown }).chrome = {
@@ -65,7 +79,11 @@ beforeEach(async () => {
       onInstalled: { addListener: (cb: () => void) => { installedListener = cb; } },
       onConnect: { addListener: (cb: (port: FakePort) => void) => { connectListener = cb; } },
     },
-    tabs: { query: queryMock },
+    tabs: {
+      query: queryMock,
+      update: updateMock,
+      get: getMock,
+    },
     sidePanel: { setPanelBehavior },
   };
 
@@ -131,6 +149,50 @@ describe('background service worker', () => {
       error: expect.stringContaining('Cannot automate internal browser page'),
     });
     expect(runMock).not.toHaveBeenCalled();
+  });
+
+  it('auto-navigates when launched from chrome://newtab/ with a goal containing a target website', async () => {
+    queryMock.mockResolvedValue([{ id: 10, title: 'New Tab', url: 'chrome://newtab/' }]);
+    runMock.mockResolvedValue({ success: true, summary: 'Found flight results' });
+
+    const port = makePort();
+    connectListener(port);
+    const handler = port.onMessage.addListener.mock.calls[0][0] as (m: unknown) => Promise<void>;
+
+    await handler({
+      type: 'START_AGENT',
+      payload: {
+        goal: 'go to google.com and Search cheapest from pune to lucknow on 5th november',
+        llmConfig: { provider: 'omniroute' },
+      },
+    });
+
+    expect(updateMock).toHaveBeenCalledWith(10, { url: 'https://google.com' });
+    expect(runMock).toHaveBeenCalledWith(
+      10,
+      'go to google.com and Search cheapest from pune to lucknow on 5th november',
+      expect.any(Function)
+    );
+  });
+
+  it('auto-navigates to google.com when launched from a blank tab without an explicit website', async () => {
+    queryMock.mockResolvedValue([{ id: 12, title: 'New Tab', url: 'about:blank' }]);
+    runMock.mockResolvedValue({ success: true, summary: 'Search complete' });
+
+    const port = makePort();
+    connectListener(port);
+    const handler = port.onMessage.addListener.mock.calls[0][0] as (m: unknown) => Promise<void>;
+
+    await handler({
+      type: 'START_AGENT',
+      payload: {
+        goal: 'Search cheapest flight from pune to lucknow',
+        llmConfig: { provider: 'omniroute' },
+      },
+    });
+
+    expect(updateMock).toHaveBeenCalledWith(12, { url: 'https://www.google.com' });
+    expect(runMock).toHaveBeenCalledWith(12, 'Search cheapest flight from pune to lucknow', expect.any(Function));
   });
 
   it('announces the target tab, forwards agent events and reports the result', async () => {
