@@ -1,5 +1,11 @@
 import { captureDOMState, isKnownElement, findActiveModal } from './extractor';
-import { drawElementBadges, clearElementBadges } from './overlay';
+import {
+  drawElementBadges,
+  clearElementBadges,
+  animateCursorTo,
+  triggerClickRipple,
+  highlightActiveElement,
+} from './overlay';
 
 console.log('[Browgent] Content script active.');
 
@@ -53,7 +59,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         scrollable.scrollBy({
           top: message.deltaY || 0,
           left: message.deltaX || 0,
-          behavior: 'instant',
+          behavior: 'smooth',
         });
         scrolledModal = true;
       }
@@ -62,7 +68,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       window.scrollBy({
         top: message.deltaY || 0,
         left: message.deltaX || 0,
-        behavior: 'instant',
+        behavior: 'smooth',
       });
     }
     sendResponse({ success: true });
@@ -73,16 +79,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const el = resolveOwnedElement(message.elementId);
     if (el) {
       try {
-        el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
       } catch {
         // ignore
       }
+      highlightActiveElement(el);
 
       // Dispatch full authentic pointer/mouse lifecycle events
       try {
         const rect = el.getBoundingClientRect();
         const clientX = Math.round(rect.left + rect.width / 2);
         const clientY = Math.round(rect.top + rect.height / 2);
+        animateCursorTo(clientX, clientY);
+        triggerClickRipple(clientX, clientY);
         const mouseOpts = { bubbles: true, cancelable: true, view: window, clientX, clientY };
         if (typeof PointerEvent !== 'undefined') {
           el.dispatchEvent(new PointerEvent('pointerdown', mouseOpts));
@@ -162,6 +171,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ success: false, error: `Element [${message.elementId}] is not a <select> element` });
       return true;
     }
+    try {
+      selectEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    } catch {
+      // ignore
+    }
+    highlightActiveElement(selectEl);
+    try {
+      const rect = selectEl.getBoundingClientRect();
+      const clientX = Math.round(rect.left + rect.width / 2);
+      const clientY = Math.round(rect.top + rect.height / 2);
+      animateCursorTo(clientX, clientY);
+      triggerClickRipple(clientX, clientY);
+    } catch {
+      // ignore
+    }
     const val = String(message.value || '').trim().toLowerCase();
     const options = Array.from(selectEl.options);
     let matchedOption = options.find((opt) => opt.value.trim().toLowerCase() === val);
@@ -190,14 +214,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return true;
     }
     try {
-      el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+      el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
     } catch {
       // ignore
     }
+    highlightActiveElement(el);
     try {
       const rect = el.getBoundingClientRect();
       const clientX = Math.round(rect.left + rect.width / 2);
       const clientY = Math.round(rect.top + rect.height / 2);
+      animateCursorTo(clientX, clientY);
       const mouseOpts = { bubbles: true, cancelable: true, view: window, clientX, clientY };
       if (typeof PointerEvent !== 'undefined') {
         el.dispatchEvent(new PointerEvent('pointerover', mouseOpts));
@@ -228,7 +254,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const el = resolveOwnedElement(message.elementId) as HTMLElement;
     if (el) {
       try {
-        el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
       } catch {
         // ignore
       }
@@ -248,6 +274,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             // ignore
           }
         }
+      }
+
+      highlightActiveElement(targetInput, 1000);
+      try {
+        const rect = targetInput.getBoundingClientRect();
+        const clientX = Math.round(rect.left + rect.width / 2);
+        const clientY = Math.round(rect.top + rect.height / 2);
+        animateCursorTo(clientX, clientY);
+      } catch {
+        // ignore
       }
 
       targetInput.focus();
