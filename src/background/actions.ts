@@ -1,6 +1,27 @@
-import { AgentAction, ClickAction, TypeAction, ScrollAction, NavigateAction, FinishAction, FailAction, WaitAction, McpCallAction } from './types';
+import {
+  AgentAction,
+  ClickAction,
+  TypeAction,
+  SelectOptionAction,
+  PressKeyAction,
+  HoverAction,
+  ScrollAction,
+  NavigateAction,
+  FinishAction,
+  FailAction,
+  WaitAction,
+  McpCallAction,
+} from './types';
 import { PerceivedElement } from '../content/types';
-import { attachDebugger, dispatchClick, dispatchType, dispatchScroll, navigateToUrl } from './cdp';
+import {
+  attachDebugger,
+  dispatchClick,
+  dispatchType,
+  dispatchScroll,
+  dispatchHover,
+  dispatchKeyPress,
+  navigateToUrl,
+} from './cdp';
 import { isRestrictedUrl } from './restricted';
 
 export const MAX_WAIT_SECONDS = 10;
@@ -66,6 +87,35 @@ export function parseAgentAction(raw: string): AgentAction {
         text: obj.text,
         pressEnter: Boolean(obj.pressEnter),
       } as TypeAction;
+    }
+
+    case 'select_option': {
+      const elementId = resolveElementId(obj, 'SelectOption');
+      if (typeof obj.value !== 'string') {
+        throw new Error('SelectOption action requires string "value"');
+      }
+      return {
+        action: 'select_option',
+        elementId,
+        value: obj.value,
+      } as SelectOptionAction;
+    }
+
+    case 'press_key': {
+      if (typeof obj.key !== 'string' || !obj.key.trim()) {
+        throw new Error('PressKey action requires string "key"');
+      }
+      return {
+        action: 'press_key',
+        key: obj.key.trim(),
+      } as PressKeyAction;
+    }
+
+    case 'hover': {
+      return {
+        action: 'hover',
+        elementId: resolveElementId(obj, 'Hover'),
+      } as HoverAction;
     }
 
     case 'scroll': {
@@ -251,6 +301,61 @@ export async function executeAgentAction(
         await dispatchType(tabId, action.text, action.pressEnter);
 
         return { success: true };
+      }
+
+      case 'select_option': {
+        const target = elements.find((el) => el.id === action.elementId);
+        if (!target) {
+          throw new Error(`Element with id [${action.elementId}] not found in perception tree`);
+        }
+        const domResult = await sendDomAction(tabId, {
+          type: 'SELECT_OPTION',
+          elementId: action.elementId,
+          value: action.value,
+        });
+        if (domResult.success) {
+          return { success: true };
+        }
+        return { success: false, error: domResult.error || `Failed to select option on element [${action.elementId}]` };
+      }
+
+      case 'press_key': {
+        try {
+          await dispatchKeyPress(tabId, action.key);
+          return { success: true };
+        } catch {
+          // Fallback to in-tab keyboard event if CDP is unavailable
+          const domResult = await sendDomAction(tabId, {
+            type: 'PRESS_KEY',
+            key: action.key,
+          });
+          return domResult.success
+            ? { success: true }
+            : { success: false, error: domResult.error || `Failed to press key "${action.key}"` };
+        }
+      }
+
+      case 'hover': {
+        const target = elements.find((el) => el.id === action.elementId);
+        if (!target) {
+          throw new Error(`Element with id [${action.elementId}] not found in perception tree`);
+        }
+        const domResult = await sendDomAction(tabId, {
+          type: 'HOVER_ELEMENT',
+          elementId: action.elementId,
+        });
+        const freshRect = await getFreshElementRect(tabId, action.elementId);
+        if (freshRect) {
+          try {
+            const center = elementCenter(freshRect);
+            await dispatchHover(tabId, center.x, center.y);
+          } catch {
+            // Ignore CDP hover failure
+          }
+        }
+        return domResult.success
+          ? { success: true }
+          : { success: false, error: domResult.error || `Failed to hover element [${action.elementId}]` };
       }
 
       case 'scroll': {

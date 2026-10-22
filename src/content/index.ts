@@ -77,7 +77,36 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       } catch {
         // ignore
       }
+
+      // Dispatch full authentic pointer/mouse lifecycle events
+      try {
+        const rect = el.getBoundingClientRect();
+        const clientX = Math.round(rect.left + rect.width / 2);
+        const clientY = Math.round(rect.top + rect.height / 2);
+        const mouseOpts = { bubbles: true, cancelable: true, view: window, clientX, clientY };
+        if (typeof PointerEvent !== 'undefined') {
+          el.dispatchEvent(new PointerEvent('pointerdown', mouseOpts));
+        }
+        el.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
+      } catch {
+        // ignore
+      }
+
       el.focus();
+
+      try {
+        const rect = el.getBoundingClientRect();
+        const clientX = Math.round(rect.left + rect.width / 2);
+        const clientY = Math.round(rect.top + rect.height / 2);
+        const mouseOpts = { bubbles: true, cancelable: true, view: window, clientX, clientY };
+        if (typeof PointerEvent !== 'undefined') {
+          el.dispatchEvent(new PointerEvent('pointerup', mouseOpts));
+        }
+        el.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
+      } catch {
+        // ignore
+      }
+
       el.click();
 
       // Find any linked or child input (for radio / checkbox)
@@ -119,6 +148,79 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     } else {
       sendResponse({ success: false, error: `Element with id ${message.elementId} not found in DOM` });
     }
+    return true;
+  }
+
+  if (message.type === 'SELECT_OPTION') {
+    const el = resolveOwnedElement(message.elementId);
+    if (!el) {
+      sendResponse({ success: false, error: `Element with id ${message.elementId} not found in DOM` });
+      return true;
+    }
+    const selectEl = (el instanceof HTMLSelectElement ? el : el.querySelector('select')) as HTMLSelectElement | null;
+    if (!selectEl) {
+      sendResponse({ success: false, error: `Element [${message.elementId}] is not a <select> element` });
+      return true;
+    }
+    const val = String(message.value || '').trim().toLowerCase();
+    const options = Array.from(selectEl.options);
+    let matchedOption = options.find((opt) => opt.value.trim().toLowerCase() === val);
+    if (!matchedOption) {
+      matchedOption = options.find((opt) => (opt.text || opt.textContent || '').trim().toLowerCase().includes(val));
+    }
+    if (matchedOption) {
+      selectEl.value = matchedOption.value;
+      matchedOption.selected = true;
+      selectEl.dispatchEvent(new Event('input', { bubbles: true }));
+      selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+      sendResponse({ success: true });
+    } else {
+      sendResponse({
+        success: false,
+        error: `Option "${message.value}" not found in <select> options: [${options.map((o) => o.value || o.text).join(', ')}]`,
+      });
+    }
+    return true;
+  }
+
+  if (message.type === 'HOVER_ELEMENT') {
+    const el = resolveOwnedElement(message.elementId);
+    if (!el) {
+      sendResponse({ success: false, error: `Element with id ${message.elementId} not found in DOM` });
+      return true;
+    }
+    try {
+      el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+    } catch {
+      // ignore
+    }
+    try {
+      const rect = el.getBoundingClientRect();
+      const clientX = Math.round(rect.left + rect.width / 2);
+      const clientY = Math.round(rect.top + rect.height / 2);
+      const mouseOpts = { bubbles: true, cancelable: true, view: window, clientX, clientY };
+      if (typeof PointerEvent !== 'undefined') {
+        el.dispatchEvent(new PointerEvent('pointerover', mouseOpts));
+        el.dispatchEvent(new PointerEvent('pointerenter', mouseOpts));
+      }
+      el.dispatchEvent(new MouseEvent('mouseover', mouseOpts));
+      el.dispatchEvent(new MouseEvent('mouseenter', mouseOpts));
+      el.dispatchEvent(new MouseEvent('mousemove', mouseOpts));
+    } catch {
+      // ignore
+    }
+    sendResponse({ success: true });
+    return true;
+  }
+
+  if (message.type === 'PRESS_KEY') {
+    const key = String(message.key || 'Enter');
+    const target = (document.activeElement || document.body) as HTMLElement;
+    const keyOpts = { key, bubbles: true, cancelable: true };
+    target.dispatchEvent(new KeyboardEvent('keydown', keyOpts));
+    target.dispatchEvent(new KeyboardEvent('keypress', keyOpts));
+    target.dispatchEvent(new KeyboardEvent('keyup', keyOpts));
+    sendResponse({ success: true });
     return true;
   }
 

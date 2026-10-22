@@ -34,6 +34,40 @@ export const CORE_BROWSER_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'select_option',
+    description: 'Select an option from a native <select> dropdown element by its value or text label.',
+    parameters: {
+      type: 'object',
+      properties: {
+        elementId: { type: 'number', description: 'The numeric ID of the <select> element' },
+        value: { type: 'string', description: 'The value or text of the option to select' },
+      },
+      required: ['elementId', 'value'],
+    },
+  },
+  {
+    name: 'press_key',
+    description: 'Dispatch a keyboard key press (e.g. Enter, Tab, Escape, ArrowDown, Backspace).',
+    parameters: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Key name (e.g. "Enter", "Tab", "Escape", "ArrowDown")' },
+      },
+      required: ['key'],
+    },
+  },
+  {
+    name: 'hover',
+    description: 'Hover the mouse pointer over an interactive element to trigger tooltips or hover menus.',
+    parameters: {
+      type: 'object',
+      properties: {
+        elementId: { type: 'number', description: 'The numeric ID of the element to hover' },
+      },
+      required: ['elementId'],
+    },
+  },
+  {
     name: 'scroll',
     description: 'Scroll the active webpage viewport up or down.',
     parameters: {

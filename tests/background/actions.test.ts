@@ -8,6 +8,8 @@ vi.mock('../../src/background/cdp', () => ({
   dispatchClick: vi.fn(),
   dispatchType: vi.fn(),
   dispatchScroll: vi.fn(),
+  dispatchHover: vi.fn(),
+  dispatchKeyPress: vi.fn(),
   sendCdpCommand: vi.fn(),
   navigateToUrl: vi.fn(),
 }));
@@ -17,6 +19,8 @@ import {
   dispatchClick,
   dispatchType,
   dispatchScroll,
+  dispatchHover,
+  dispatchKeyPress,
   navigateToUrl,
 } from '../../src/background/cdp';
 
@@ -24,6 +28,8 @@ const mockedAttachDebugger = vi.mocked(attachDebugger);
 const mockedDispatchClick = vi.mocked(dispatchClick);
 const mockedDispatchType = vi.mocked(dispatchType);
 const mockedDispatchScroll = vi.mocked(dispatchScroll);
+const mockedDispatchHover = vi.mocked(dispatchHover);
+const mockedDispatchKeyPress = vi.mocked(dispatchKeyPress);
 const mockedNavigateToUrl = vi.mocked(navigateToUrl);
 
 interface DomRect {
@@ -88,6 +94,24 @@ describe('Action Parser', () => {
     const raw = JSON.stringify({ action: 'click', elementId: 3 });
     const parsed = parseAgentAction(raw);
     expect(parsed).toEqual({ action: 'click', elementId: 3 });
+  });
+
+  it('parses select_option action JSON', () => {
+    const raw = JSON.stringify({ action: 'select_option', elementId: 4, value: 'United States' });
+    const parsed = parseAgentAction(raw);
+    expect(parsed).toEqual({ action: 'select_option', elementId: 4, value: 'United States' });
+  });
+
+  it('parses press_key action JSON', () => {
+    const raw = JSON.stringify({ action: 'press_key', key: 'Enter' });
+    const parsed = parseAgentAction(raw);
+    expect(parsed).toEqual({ action: 'press_key', key: 'Enter' });
+  });
+
+  it('parses hover action JSON', () => {
+    const raw = JSON.stringify({ action: 'hover', elementId: 8 });
+    const parsed = parseAgentAction(raw);
+    expect(parsed).toEqual({ action: 'hover', elementId: 8 });
   });
 
   it('parses type action with enter flag', () => {
@@ -294,5 +318,56 @@ describe('executeAgentAction', () => {
 
     expect(result.success).toBe(true);
     expect(result.error).toBeUndefined();
+  });
+
+  it('executes select_option action via dom message', async () => {
+    domResponder = (payload) => {
+      if (payload.type === 'SELECT_OPTION' && payload.elementId === 2 && payload.value === 'OptionA') {
+        return { success: true };
+      }
+      return { success: false, error: 'failed' };
+    };
+
+    const result = await executeAgentAction(
+      TAB_ID,
+      { action: 'select_option', elementId: 2, value: 'OptionA' },
+      ELEMENTS
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  it('executes press_key action via CDP dispatchKeyPress', async () => {
+    mockedDispatchKeyPress.mockResolvedValueOnce(undefined);
+
+    const result = await executeAgentAction(
+      TAB_ID,
+      { action: 'press_key', key: 'Enter' },
+      ELEMENTS
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockedDispatchKeyPress).toHaveBeenCalledWith(TAB_ID, 'Enter');
+  });
+
+  it('executes hover action via dom message and CDP dispatchHover', async () => {
+    domResponder = (payload) => {
+      if (payload.type === 'HOVER_ELEMENT') {
+        return { success: true };
+      }
+      if (payload.type === 'GET_ELEMENT_RECT') {
+        return { success: true, rect: { x: 10, y: 20, width: 30, height: 40 } };
+      }
+      return { success: false };
+    };
+
+    const result = await executeAgentAction(
+      TAB_ID,
+      { action: 'hover', elementId: 1 },
+      ELEMENTS
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockedDispatchHover).toHaveBeenCalledWith(TAB_ID, 25, 40);
   });
 });

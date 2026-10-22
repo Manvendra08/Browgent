@@ -1,4 +1,15 @@
-export type ActionType = 'click' | 'type' | 'scroll' | 'navigate' | 'wait' | 'finish' | 'fail' | 'mcp_call';
+export type ActionType =
+  | 'click'
+  | 'type'
+  | 'select_option'
+  | 'press_key'
+  | 'hover'
+  | 'scroll'
+  | 'navigate'
+  | 'wait'
+  | 'finish'
+  | 'fail'
+  | 'mcp_call';
 
 export interface ClickAction {
   action: 'click';
@@ -10,6 +21,22 @@ export interface TypeAction {
   elementId: number;
   text: string;
   pressEnter?: boolean;
+}
+
+export interface SelectOptionAction {
+  action: 'select_option';
+  elementId: number;
+  value: string;
+}
+
+export interface PressKeyAction {
+  action: 'press_key';
+  key: string;
+}
+
+export interface HoverAction {
+  action: 'hover';
+  elementId: number;
 }
 
 export interface ScrollAction {
@@ -47,6 +74,9 @@ export interface McpCallAction {
 export type AgentAction =
   | ClickAction
   | TypeAction
+  | SelectOptionAction
+  | PressKeyAction
+  | HoverAction
   | ScrollAction
   | NavigateAction
   | WaitAction

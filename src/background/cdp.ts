@@ -152,6 +152,48 @@ export async function dispatchScroll(tabId: number, deltaY: number, deltaX: numb
   });
 }
 
+export async function dispatchHover(tabId: number, x: number, y: number): Promise<void> {
+  await attachDebugger(tabId);
+  await sendCdpCommand(tabId, 'Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x,
+    y,
+  });
+}
+
+export async function dispatchKeyPress(tabId: number, key: string): Promise<void> {
+  await attachDebugger(tabId);
+
+  const keyMap: Record<string, { code: string; keyCode: number }> = {
+    Enter: { code: 'Enter', keyCode: 13 },
+    Tab: { code: 'Tab', keyCode: 9 },
+    Escape: { code: 'Escape', keyCode: 27 },
+    Backspace: { code: 'Backspace', keyCode: 8 },
+    Space: { code: 'Space', keyCode: 32 },
+    ArrowDown: { code: 'ArrowDown', keyCode: 40 },
+    ArrowUp: { code: 'ArrowUp', keyCode: 38 },
+    ArrowLeft: { code: 'ArrowLeft', keyCode: 37 },
+    ArrowRight: { code: 'ArrowRight', keyCode: 39 },
+  };
+
+  const info = keyMap[key] || { code: key, keyCode: 0 };
+
+  await sendCdpCommand(tabId, 'Input.dispatchKeyEvent', {
+    type: 'rawKeyDown',
+    key,
+    code: info.code,
+    windowsVirtualKeyCode: info.keyCode,
+    nativeVirtualKeyCode: info.keyCode,
+  });
+  await sendCdpCommand(tabId, 'Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key,
+    code: info.code,
+    windowsVirtualKeyCode: info.keyCode,
+    nativeVirtualKeyCode: info.keyCode,
+  });
+}
+
 export async function navigateToUrl(tabId: number, url: string): Promise<void> {
   if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.update) {
     await chrome.tabs.update(tabId, { url });

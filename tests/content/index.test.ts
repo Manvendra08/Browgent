@@ -214,4 +214,56 @@ describe('Content script message protocol', () => {
     expect((formInp?.domNode as HTMLInputElement).value).toBe('search query');
     expect(submitSpy).toHaveBeenCalled();
   });
+
+  it('selects an option in a <select> element and fires input and change events', async () => {
+    document.body.innerHTML = `
+      <select id="country-select">
+        <option value="ca">Canada</option>
+        <option value="us">United States</option>
+        <option value="uk">United Kingdom</option>
+      </select>
+    `;
+
+    const elements = extractInteractiveElements(document);
+    const select = elements.find((el) => el.tagName === 'SELECT');
+    expect(select).toBeDefined();
+
+    const selectEl = select?.domNode as HTMLSelectElement;
+    const changeSpy = vi.fn();
+    const inputSpy = vi.fn();
+    selectEl.addEventListener('change', changeSpy);
+    selectEl.addEventListener('input', inputSpy);
+
+    const response = await send({
+      type: 'SELECT_OPTION',
+      elementId: select?.id,
+      value: 'us',
+    });
+
+    expect(response.success).toBe(true);
+    expect(selectEl.value).toBe('us');
+    expect(changeSpy).toHaveBeenCalled();
+    expect(inputSpy).toHaveBeenCalled();
+  });
+
+  it('handles HOVER_ELEMENT and PRESS_KEY messages cleanly', async () => {
+    document.body.innerHTML = '<button id="hover-btn">Menu</button>';
+    const elements = extractInteractiveElements(document);
+    const btn = elements.find((el) => el.tagName === 'BUTTON');
+
+    const hoverResponse = await send({
+      type: 'HOVER_ELEMENT',
+      elementId: btn?.id,
+    });
+    expect(hoverResponse.success).toBe(true);
+
+    const keySpy = vi.fn();
+    document.addEventListener('keydown', keySpy);
+    const keyResponse = await send({
+      type: 'PRESS_KEY',
+      key: 'Escape',
+    });
+    expect(keyResponse.success).toBe(true);
+    expect(keySpy).toHaveBeenCalled();
+  });
 });
