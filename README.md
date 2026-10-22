@@ -90,6 +90,8 @@ Click the **Settings** gear icon in the side panel header to configure:
 4. **MCP Endpoint**: Set a remote MCP server that speaks Streamable HTTP in JSON mode (e.g. `http://localhost:3000/mcp`). `/sse` endpoints are not supported.
 5. **Safety Step Budget**: Adjust the maximum autonomous steps per task (default: **25**; adjustable from 3 to 30).
 
+**Per-provider settings are remembered.** Each provider keeps its own API key, endpoint, and model, so you configure each one once and switch freely — a provider that has saved settings is marked with a check. Values are saved when you click **Save Settings**, and edits made just before switching to another provider are kept too.
+
 ---
 
 ## Architecture

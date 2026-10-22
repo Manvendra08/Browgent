@@ -230,6 +230,7 @@ export async function executeAgentAction(
           type: 'TYPE_ELEMENT',
           elementId: action.elementId,
           text: action.text,
+          pressEnter: action.pressEnter,
         });
         if (domResult.success) {
           return { success: true };

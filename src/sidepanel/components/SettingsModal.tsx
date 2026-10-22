@@ -1,15 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Save, Plus, Globe, Key, Cpu, Zap, Sliders, Database, RefreshCw, ListChecks, AlertCircle } from 'lucide-react';
+import { X, Save, Plus, Globe, Key, Cpu, Zap, Sliders, Database, RefreshCw, ListChecks, AlertCircle, Check } from 'lucide-react';
 import { LLMConfig, ProviderType } from '../../background/llm/types';
 import { Skill } from '../../background/skills/types';
 import { parseSkillMarkdown } from '../../background/skills/manager';
 import { fetchAvailableModels } from '../modelFetch';
+import {
+  OMNIROUTE_DEFAULT_BASE_URL,
+  configForProvider,
+  hasSavedConfig,
+  stashProviderConfig,
+  type ProviderConfigMap,
+} from '../providerConfigs';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   config: LLMConfig;
-  onSaveConfig: (config: LLMConfig) => void;
+  onSaveConfig: (config: LLMConfig, providerConfigs: ProviderConfigMap) => void;
+  providerConfigs: ProviderConfigMap;
   maxSteps: number;
   onSaveMaxSteps: (max: number) => void;
   mcpEndpoint: string;
@@ -25,21 +33,12 @@ const PROVIDERS: { id: ProviderType; label: string }[] = [
   { id: 'anthropic', label: 'Anthropic' },
 ];
 
-const OMNIROUTE_DEFAULT_BASE_URL = 'http://localhost:20128/v1/chat/completions';
-
-const PROVIDER_DEFAULTS: Record<ProviderType, { baseUrl: string; model: string }> = {
-  omniroute: { baseUrl: OMNIROUTE_DEFAULT_BASE_URL, model: 'anti' },
-  openai: { baseUrl: '', model: '' },
-  'openai-compat': { baseUrl: '', model: '' },
-  gemini: { baseUrl: '', model: '' },
-  anthropic: { baseUrl: '', model: '' },
-};
-
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
   config,
   onSaveConfig,
+  providerConfigs,
   maxSteps,
   onSaveMaxSteps,
   mcpEndpoint,
@@ -47,6 +46,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onAddCustomSkill,
 }) => {
   const [localConfig, setLocalConfig] = useState<LLMConfig>({ ...config });
+  const [localProviderConfigs, setLocalProviderConfigs] = useState<ProviderConfigMap>({ ...providerConfigs });
   const [localMaxSteps, setLocalMaxSteps] = useState<number>(maxSteps);
   const [localMcpEndpoint, setLocalMcpEndpoint] = useState<string>(mcpEndpoint);
   const [customSkillMarkdown, setCustomSkillMarkdown] = useState<string>('');
@@ -62,6 +62,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setLocalConfig({ ...config });
+      setLocalProviderConfigs({ ...providerConfigs });
       setLocalMaxSteps(maxSteps);
       setLocalMcpEndpoint(mcpEndpoint);
       setAvailableModels([]);
@@ -123,7 +124,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const showBaseUrl = localConfig.provider !== 'gemini';
   const showAliases = localConfig.provider === 'omniroute';
-  const canListModels = localConfig.provider !== 'omniroute';
+  const canListModels = true;
 
   const loadModels = async () => {
     setModelStatus('Loading models...');
@@ -142,7 +143,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Auto-load models when requirements are met
   useEffect(() => {
     if (!isOpen || !canListModels) return;
-    const keyPresent = Boolean((localConfig.apiKey || '').trim());
+    const keyPresent = localConfig.provider === 'omniroute' || Boolean((localConfig.apiKey || '').trim());
     const baseUrlPresent = localConfig.provider !== 'openai-compat' || Boolean((localConfig.baseUrl || '').trim());
     if (keyPresent && baseUrlPresent) {
       loadModels();
@@ -156,10 +157,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   if (!isOpen) return null;
 
   const handleSave = () => {
-    onSaveConfig(localConfig);
+    // Remember this provider's values (including edits made just before saving)
+    // so switching back to it later restores the key/endpoint/model.
+    const mergedConfigs = stashProviderConfig(localProviderConfigs, localConfig);
+    setLocalProviderConfigs(mergedConfigs);
+    onSaveConfig(localConfig, mergedConfigs);
     onSaveMaxSteps(localMaxSteps);
     onSaveMcpEndpoint(localMcpEndpoint);
     onClose();
+  };
+
+  const switchProvider = (provider: ProviderType) => {
+    if (provider === localConfig.provider) return;
+    // Stash in-progress edits for the provider being left before loading the next one.
+    const mergedConfigs = stashProviderConfig(localProviderConfigs, localConfig);
+    setLocalProviderConfigs(mergedConfigs);
+    setLocalConfig(configForProvider(mergedConfigs, provider));
   };
 
   const handleAddSkill = () => {
@@ -246,21 +259,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() =>
-                    setLocalConfig((prev) => ({
-                      ...prev,
-                      provider: p.id,
-                      baseUrl: PROVIDER_DEFAULTS[p.id].baseUrl,
-                      model: PROVIDER_DEFAULTS[p.id].model,
-                    }))
-                  }
+                  onClick={() => switchProvider(p.id)}
+                  aria-label={`${p.label}${hasSavedConfig(localProviderConfigs, p.id) ? ' (saved settings)' : ''}`}
+                  title={hasSavedConfig(localProviderConfigs, p.id) ? 'Saved settings will be restored' : undefined}
                   className={`p-2 rounded-lg text-left font-medium text-[11px] border transition ${
                     localConfig.provider === p.id
                       ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500'
                       : 'bg-slate-800/60 text-slate-400 border-slate-700/60 hover:bg-slate-800'
                   }`}
                 >
-                  {p.label}
+                  <span className="flex items-center justify-between gap-1">
+                    <span>{p.label}</span>
+                    {hasSavedConfig(localProviderConfigs, p.id) && (
+                      <Check className="w-3 h-3 text-emerald-400 flex-shrink-0" aria-hidden="true" />
+                    )}
+                  </span>
                 </button>
               ))}
             </div>

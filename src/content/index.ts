@@ -66,14 +66,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       el.click();
 
       // If clicking a label or radio/checkbox, explicitly trigger checked and change events
-      if (el instanceof HTMLInputElement && (el.type === 'radio' || el.type === 'checkbox')) {
+      if (el instanceof HTMLInputElement && el.type === 'radio') {
         el.checked = true;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      } else if (el instanceof HTMLInputElement && el.type === 'checkbox') {
         el.dispatchEvent(new Event('change', { bubbles: true }));
         el.dispatchEvent(new Event('input', { bubbles: true }));
       } else if (el.tagName === 'LABEL') {
         const input = el.querySelector('input');
-        if (input) {
+        if (input && input.type === 'radio') {
           input.checked = true;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        } else if (input && input.type === 'checkbox') {
           input.dispatchEvent(new Event('change', { bubbles: true }));
           input.dispatchEvent(new Event('input', { bubbles: true }));
         }
@@ -97,7 +103,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'TYPE_ELEMENT') {
-    const el = resolveOwnedElement(message.elementId) as HTMLInputElement | HTMLTextAreaElement;
+    const el = resolveOwnedElement(message.elementId) as HTMLElement;
     if (el) {
       try {
         el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
@@ -105,9 +111,40 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         // ignore
       }
       el.focus();
-      el.value = message.text;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
+
+      const isEditable = el.isContentEditable || el.contentEditable === 'true' || el.getAttribute('contenteditable') === 'true';
+      if (isEditable) {
+        el.textContent = message.text;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      } else if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+        const proto = el instanceof HTMLInputElement ? window.HTMLInputElement.prototype : window.HTMLTextAreaElement.prototype;
+        const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+        if (nativeSetter) {
+          nativeSetter.call(el, message.text);
+        } else {
+          el.value = message.text;
+        }
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      } else {
+        (el as unknown as { value?: string }).value = message.text;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      if (message.pressEnter) {
+        el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+        el.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+        el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+        if (el instanceof HTMLInputElement && el.form && typeof el.form.requestSubmit === 'function') {
+          try {
+            el.form.requestSubmit();
+          } catch {
+            // ignore validation errors
+          }
+        }
+      }
 
       // Report the fresh post-scroll rect so CDP fallback clicks the right spot
       const domRect = el.getBoundingClientRect();

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { queryOmniRoute } from '../../src/background/llm/omniroute';
+import { queryOmniRoute, normalizeOmniRouteEndpoint } from '../../src/background/llm/omniroute';
 import { queryAnthropic } from '../../src/background/llm/anthropic';
 
 const IMG = 'data:image/png;base64,AAAA';
@@ -50,5 +50,15 @@ describe('Provider image parity', () => {
     expect(content[0].source?.media_type).toBe('image/png');
     expect(content[0].source?.data).toBe('AAAA');
     expect(content[1]).toEqual({ type: 'text', text: 'verify this' });
+  });
+
+  it('normalizes various OmniRoute base URLs to chat/completions endpoint', () => {
+    expect(normalizeOmniRouteEndpoint('')).toBe('http://localhost:20128/v1/chat/completions');
+    expect(normalizeOmniRouteEndpoint('http://localhost:20128')).toBe('http://localhost:20128/v1/chat/completions');
+    expect(normalizeOmniRouteEndpoint('http://localhost:20128/')).toBe('http://localhost:20128/v1/chat/completions');
+    expect(normalizeOmniRouteEndpoint('http://localhost:20128/v1')).toBe('http://localhost:20128/v1/chat/completions');
+    expect(normalizeOmniRouteEndpoint('http://localhost:20128/v1/')).toBe('http://localhost:20128/v1/chat/completions');
+    expect(normalizeOmniRouteEndpoint('http://localhost:20128/v1/models')).toBe('http://localhost:20128/v1/chat/completions');
+    expect(normalizeOmniRouteEndpoint('http://localhost:20128/v1/chat/completions')).toBe('http://localhost:20128/v1/chat/completions');
   });
 });

@@ -19,11 +19,11 @@ afterEach(() => {
 
 describe('AgentController MCP dispatch', () => {
   it('executes registered MCP tool calls through the MCP client', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
       jsonrpc: '2.0',
       id: 1,
-      result: { tools: [{ name: 'weather.lookup', description: 'Weather lookup', inputSchema: { type: 'object' } }] },
-    }), { status: 200 }));
+      result: { tools: [{ name: 'weather.lookup', description: 'Weather lookup', inputSchema: { type: 'object' } }], content: [{ type: 'text', text: '72 degrees and sunny' }] },
+    }), { status: 200 })));
     vi.stubGlobal('fetch', fetchMock);
     mockedQueryLLMRaw.mockResolvedValue('```json\n{"confirmed": true, "evidence": "Result displayed on page"}\n```');
 
@@ -56,6 +56,10 @@ describe('AgentController MCP dispatch', () => {
 
     const actionResultEvents = events.filter((e) => e.type === 'action_result');
     expect(actionResultEvents.length).toBeGreaterThan(0);
+
+    const mcpStepLog = controller.getHistory().find((h) => h.action.action === 'mcp_call');
+    expect(mcpStepLog?.success).toBe(true);
+    expect(mcpStepLog?.result).toBeDefined();
   });
 
   it('returns a clean failure when an MCP tool is called without an endpoint', async () => {

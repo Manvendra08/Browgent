@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseModelResponse } from '../../src/background/llm/client';
+import { resolveOmniRouteModel } from '../../src/background/llm/omniroute';
 
 describe('LLM Response Parser', () => {
   it('extracts thought and action from markdown JSON block', () => {
@@ -76,5 +77,13 @@ describe('LLM Response Parser', () => {
     } catch (err) {
       expect((err as Error).name).toBe('ActionParseError');
     }
+  });
+
+  it('resolves OmniRoute aliases even when prefixed with leading slash', () => {
+    expect(resolveOmniRouteModel('/anti')).toBe('Claude/Antigravity');
+    expect(resolveOmniRouteModel('/free')).toBe('Claude/Free');
+    expect(resolveOmniRouteModel('/kilo')).toBe('Claude/Kilo-Models');
+    expect(resolveOmniRouteModel('anti')).toBe('Claude/Antigravity');
+    expect(resolveOmniRouteModel('custom/model')).toBe('custom/model');
   });
 });

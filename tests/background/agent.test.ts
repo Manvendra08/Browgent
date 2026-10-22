@@ -56,4 +56,31 @@ describe('Agent Controller', () => {
       expect(controller.checkLoop({ action: 'wait', seconds: 2 })).toBe(false);
     }
   });
+
+  it('detects trackable action loops even when non-trackable wait actions are interleaved', () => {
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 10,
+    });
+
+    expect(controller.checkLoop({ action: 'click', elementId: 4 })).toBe(false);
+    expect(controller.checkLoop({ action: 'wait', seconds: 2 })).toBe(false);
+    expect(controller.checkLoop({ action: 'click', elementId: 4 })).toBe(false);
+    expect(controller.checkLoop({ action: 'wait', seconds: 2 })).toBe(false);
+    expect(controller.checkLoop({ action: 'click', elementId: 4 })).toBe(true);
+  });
+
+  it('detects alternating 2-action loops', () => {
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 10,
+    });
+
+    expect(controller.checkLoop({ action: 'click', elementId: 1 })).toBe(false);
+    expect(controller.checkLoop({ action: 'click', elementId: 2 })).toBe(false);
+    expect(controller.checkLoop({ action: 'click', elementId: 1 })).toBe(false);
+    expect(controller.checkLoop({ action: 'click', elementId: 2 })).toBe(false);
+    expect(controller.checkLoop({ action: 'click', elementId: 1 })).toBe(false);
+    expect(controller.checkLoop({ action: 'click', elementId: 2 })).toBe(true);
+  });
 });

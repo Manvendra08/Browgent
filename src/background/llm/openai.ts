@@ -1,10 +1,23 @@
 import { LLMConfig, LLMMessage } from './types';
 import { fetchLLM, redactSecrets, truncateErrorBody } from './net';
 
+export function normalizeOpenAIEndpoint(baseUrl?: string): string {
+  if (!baseUrl || baseUrl.trim() === '') {
+    return 'https://api.openai.com/v1/chat/completions';
+  }
+  let clean = baseUrl.trim().replace(/\/+$/, '');
+  clean = clean.replace(/\/models$/, '');
+  if (clean.endsWith('/chat/completions')) {
+    return clean;
+  }
+  if (clean.endsWith('/v1')) {
+    return `${clean}/chat/completions`;
+  }
+  return `${clean}/v1/chat/completions`;
+}
+
 export async function queryOpenAI(config: LLMConfig, messages: LLMMessage[], signal?: AbortSignal): Promise<string> {
-  const endpoint = config.baseUrl && config.baseUrl.trim() !== ''
-    ? config.baseUrl
-    : 'https://api.openai.com/v1/chat/completions';
+  const endpoint = normalizeOpenAIEndpoint(config.baseUrl);
 
   const formattedMessages = messages.map((m) => {
     if (m.images && m.images.length > 0) {
@@ -20,11 +33,12 @@ export async function queryOpenAI(config: LLMConfig, messages: LLMMessage[], sig
     return { role: m.role, content: m.content };
   });
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     model: config.model || 'gpt-4o',
     messages: formattedMessages,
     temperature: config.temperature ?? 0.2,
     max_tokens: config.maxTokens ?? 1024,
+    tool_choice: 'none',
   };
 
   const headers: Record<string, string> = {
@@ -48,9 +62,20 @@ export async function queryOpenAI(config: LLMConfig, messages: LLMMessage[], sig
 
   const data = await response.json();
   const choice = data.choices && data.choices[0];
-  if (!choice || !choice.message || !choice.message.content) {
+  if (!choice || !choice.message) {
     throw new Error('OpenAI returned an empty completion');
   }
 
-  return choice.message.content;
+  let content = choice.message.content;
+  if (!content && Array.isArray(choice.message.tool_calls) && choice.message.tool_calls.length > 0) {
+    const firstCall = choice.message.tool_calls[0];
+    const funcArgs = firstCall.function?.arguments || '{}';
+    content = `\`\`\`json\n{\n  "thought": "Invoking ${firstCall.function?.name || 'tool'}",\n  "action": ${funcArgs}\n}\n\`\`\``;
+  }
+
+  if (!content) {
+    throw new Error('OpenAI returned an empty completion');
+  }
+
+  return content;
 }

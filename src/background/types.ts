@@ -59,4 +59,5 @@ export interface ActionResult {
   error?: string;
   isTerminal?: boolean;
   summary?: string;
+  data?: unknown;
 }

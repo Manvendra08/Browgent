@@ -144,18 +144,26 @@ export class AgentController {
       action.action === 'navigate' ||
       action.action === 'mcp_call';
 
-    const serialized = JSON.stringify(action);
-    this.actionHistory.push(serialized);
-
     if (!isTrackable) {
       return false;
     }
+
+    const serialized = JSON.stringify(action);
+    this.actionHistory.push(serialized);
 
     const len = this.actionHistory.length;
     if (len >= 3) {
       if (this.actionHistory[len - 1] === serialized &&
           this.actionHistory[len - 2] === serialized &&
           this.actionHistory[len - 3] === serialized) {
+        return true;
+      }
+    }
+    if (len >= 6) {
+      if (this.actionHistory[len - 1] === this.actionHistory[len - 3] &&
+          this.actionHistory[len - 3] === this.actionHistory[len - 5] &&
+          this.actionHistory[len - 2] === this.actionHistory[len - 4] &&
+          this.actionHistory[len - 4] === this.actionHistory[len - 6]) {
         return true;
       }
     }
@@ -351,6 +359,7 @@ export class AgentController {
               step: this.currentStep,
               success: execResult.success,
               error: execResult.error,
+              result: execResult.summary,
             },
           });
 

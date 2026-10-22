@@ -164,4 +164,54 @@ describe('Content script message protocol', () => {
     expect(inputSpy).toHaveBeenCalledTimes(1);
     expect(changeSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('toggles an already-checked checkbox to unchecked on click', async () => {
+    document.body.innerHTML = '<input type="checkbox" id="chk1" checked />';
+    const elements = extractInteractiveElements(document);
+    const chk = elements.find((el) => el.tagName === 'INPUT' && el.type === 'checkbox');
+    expect(chk).toBeDefined();
+
+    const chkEl = chk?.domNode as HTMLInputElement;
+    expect(chkEl.checked).toBe(true);
+
+    const response = await send({ type: 'CLICK_ELEMENT', elementId: chk?.id });
+    expect(response.success).toBe(true);
+    expect(chkEl.checked).toBe(false);
+  });
+
+  it('types text into contenteditable elements and handles pressEnter', async () => {
+    document.body.innerHTML = `
+      <form id="test-form">
+        <input type="text" id="inp-form" />
+      </form>
+      <div id="editable" contenteditable="true">Initial text</div>
+    `;
+
+    const elements = extractInteractiveElements(document);
+    const editable = elements.find((el) => el.id && (el.domNode as HTMLElement)?.getAttribute('contenteditable') === 'true');
+    expect(editable).toBeDefined();
+
+    const editResponse = await send({
+      type: 'TYPE_ELEMENT',
+      elementId: editable?.id,
+      text: 'Updated via agent',
+    });
+    expect(editResponse.success).toBe(true);
+    expect((editable?.domNode as HTMLElement).textContent).toBe('Updated via agent');
+
+    const formInp = elements.find((el) => el.id && el.domNode?.id === 'inp-form');
+    const formEl = document.getElementById('test-form') as HTMLFormElement;
+    const submitSpy = vi.fn((e: Event) => e.preventDefault());
+    formEl.addEventListener('submit', submitSpy);
+
+    const typeResponse = await send({
+      type: 'TYPE_ELEMENT',
+      elementId: formInp?.id,
+      text: 'search query',
+      pressEnter: true,
+    });
+    expect(typeResponse.success).toBe(true);
+    expect((formInp?.domNode as HTMLInputElement).value).toBe('search query');
+    expect(submitSpy).toHaveBeenCalled();
+  });
 });

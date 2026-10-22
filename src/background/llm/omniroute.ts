@@ -3,6 +3,25 @@ import { fetchLLM, redactSecrets, truncateErrorBody } from './net';
 
 export const OMNIROUTE_DEFAULT_BASE_URL = 'http://localhost:20128/v1/chat/completions';
 
+export function normalizeOmniRouteEndpoint(baseUrl?: string): string {
+  if (!baseUrl || baseUrl.trim() === '') {
+    return OMNIROUTE_DEFAULT_BASE_URL;
+  }
+  let clean = baseUrl.trim().replace(/\/+$/, '');
+  // Strip trailing /models if user accidentally pasted the models URL
+  clean = clean.replace(/\/models$/, '');
+  // If it already ends with /chat/completions, return it
+  if (clean.endsWith('/chat/completions')) {
+    return clean;
+  }
+  // If it ends with /v1, append /chat/completions
+  if (clean.endsWith('/v1')) {
+    return `${clean}/chat/completions`;
+  }
+  // If it's a bare origin or root (e.g. http://localhost:20128), append /v1/chat/completions
+  return `${clean}/v1/chat/completions`;
+}
+
 export const OMNIROUTE_ALIASES: Record<string, string> = {
   free: 'Claude/Free',
   kilo: 'Claude/Kilo-Models',
@@ -16,12 +35,12 @@ export function resolveOmniRouteModel(aliasOrModel?: string): string {
   if (!aliasOrModel || aliasOrModel.trim() === '') {
     return 'Claude/Antigravity';
   }
-  const clean = aliasOrModel.trim().toLowerCase();
+  const clean = aliasOrModel.trim().toLowerCase().replace(/^\//, '');
   return OMNIROUTE_ALIASES[clean] || aliasOrModel;
 }
 
 export async function queryOmniRoute(config: LLMConfig, messages: LLMMessage[], signal?: AbortSignal): Promise<string> {
-  const endpoint = config.baseUrl && config.baseUrl.trim() !== '' ? config.baseUrl : OMNIROUTE_DEFAULT_BASE_URL;
+  const endpoint = normalizeOmniRouteEndpoint(config.baseUrl);
   const resolvedModel = resolveOmniRouteModel(config.model);
 
   const formattedMessages = messages.map((m) => {
@@ -38,11 +57,12 @@ export async function queryOmniRoute(config: LLMConfig, messages: LLMMessage[], 
     return { role: m.role, content: m.content };
   });
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     model: resolvedModel,
     messages: formattedMessages,
     temperature: config.temperature ?? 0.2,
     max_tokens: config.maxTokens ?? 1024,
+    tool_choice: 'none',
   };
 
   const headers: Record<string, string> = {
@@ -66,9 +86,20 @@ export async function queryOmniRoute(config: LLMConfig, messages: LLMMessage[], 
 
   const data = await response.json();
   const choice = data.choices && data.choices[0];
-  if (!choice || !choice.message || !choice.message.content) {
+  if (!choice || !choice.message) {
     throw new Error('OmniRoute returned an empty or invalid completion format');
   }
 
-  return choice.message.content;
+  let content = choice.message.content;
+  if (!content && Array.isArray(choice.message.tool_calls) && choice.message.tool_calls.length > 0) {
+    const firstCall = choice.message.tool_calls[0];
+    const funcArgs = firstCall.function?.arguments || '{}';
+    content = `\`\`\`json\n{\n  "thought": "Invoking ${firstCall.function?.name || 'tool'}",\n  "action": ${funcArgs}\n}\n\`\`\``;
+  }
+
+  if (!content) {
+    throw new Error('OmniRoute returned an empty or invalid completion format');
+  }
+
+  return content;
 }

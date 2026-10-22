@@ -10,12 +10,14 @@ import { SkillSelector } from './components/SkillSelector';
 import { FileAttachment } from './components/FileAttachment';
 import { ActiveTabBar, type ActiveTabInfo } from './components/ActiveTabBar';
 import { SettingsModal } from './components/SettingsModal';
+import {
+  DEFAULT_LLM_CONFIG,
+  seedProviderConfigs,
+  stashProviderConfig,
+  type ProviderConfigMap,
+} from './providerConfigs';
 
-const DEFAULT_CONFIG: LLMConfig = {
-  provider: 'omniroute',
-  baseUrl: 'http://localhost:20128/v1/chat/completions',
-  model: 'anti',
-};
+const DEFAULT_CONFIG: LLMConfig = DEFAULT_LLM_CONFIG;
 
 export const DEFAULT_PROMPTS: string[] = [
   'Summarize the key points of this page in 5 bullets',
@@ -42,6 +44,7 @@ export const App: React.FC = () => {
   const [skills, setSkills] = useState<Skill[]>(BUILTIN_SKILLS);
   const [files, setFiles] = useState<AttachedFile[]>([]);
   const [config, setConfig] = useState<LLMConfig>(DEFAULT_CONFIG);
+  const [providerConfigs, setProviderConfigs] = useState<ProviderConfigMap>({});
   const [maxSteps, setMaxSteps] = useState<number>(25);
   const [mcpEndpoint, setMcpEndpoint] = useState<string>('');
 
@@ -142,120 +145,163 @@ export const App: React.FC = () => {
     };
   }, [refreshActiveTab]);
 
-  // Connect port to background service worker
-  useEffect(() => {
+  // Connect port to background service worker with auto-reconnection
+  const getOrCreatePort = React.useCallback((): chrome.runtime.Port | null => {
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
-      return;
+      return null;
+    }
+    if (portRef.current) {
+      return portRef.current;
     }
 
-    const port = chrome.runtime.connect({ name: 'browgent-sidepanel' });
-    portRef.current = port;
+    try {
+      const port = chrome.runtime.connect({ name: 'browgent-sidepanel' });
+      portRef.current = port;
 
-    port.onMessage.addListener((msg) => {
-      if (msg.type === 'STATUS_UPDATE') {
-        setStatus(msg.status);
-        if (msg.status === 'running' && msg.tab) {
-          setAgentTab({
-            id: msg.tab.id,
-            title: msg.tab.title,
-            url: msg.tab.url,
-            favIconUrl: msg.tab.favIconUrl,
-          });
-        } else {
-          setAgentTab(null);
+      port.onMessage.addListener((msg) => {
+        if (msg.type === 'STATUS_UPDATE') {
+          setStatus(msg.status);
+          if (msg.status === 'running' && msg.tab) {
+            setAgentTab({
+              id: msg.tab.id,
+              title: msg.tab.title,
+              url: msg.tab.url,
+              favIconUrl: msg.tab.favIconUrl,
+            });
+          } else {
+            setAgentTab(null);
+          }
         }
-      }
 
-      if (msg.type === 'AGENT_EVENT') {
-        const event = msg.event;
-        if (event.type === 'step') {
-          // create new feed item if not present
-          const stepNum = event.data.step;
-          setFeedItems((prev) => [
-            ...prev,
-            {
-              id: `step-${stepNum}-${Date.now()}`,
-              step: stepNum,
-              status: 'running',
-              timestamp: Date.now(),
-            },
-          ]);
-        } else if (event.type === 'thought') {
-          setFeedItems((prev) => {
-            const last = prev[prev.length - 1];
-            if (!last) return prev;
-            return [...prev.slice(0, -1), { ...last, thought: event.data.thought }];
-          });
-        } else if (event.type === 'action') {
-          setFeedItems((prev) => {
-            const last = prev[prev.length - 1];
-            if (!last) return prev;
-            return [...prev.slice(0, -1), { ...last, action: event.data.action, status: 'success' }];
-          });
-        } else if (event.type === 'action_result') {
-          setFeedItems((prev) => {
-            const last = prev[prev.length - 1];
-            if (!last || last.step !== event.data.step) return prev;
-            return [
-              ...prev.slice(0, -1),
+        if (msg.type === 'AGENT_EVENT') {
+          const event = msg.event;
+          if (event.type === 'step') {
+            // create new feed item if not present
+            const stepNum = event.data.step;
+            setFeedItems((prev) => [
+              ...prev,
               {
-                ...last,
-                status: event.data.success ? 'success' : 'error',
-                error: event.data.error,
+                id: `step-${stepNum}-${Date.now()}`,
+                step: stepNum,
+                status: 'running',
+                timestamp: Date.now(),
               },
-            ];
-          });
-        } else if (event.type === 'done') {
-          setStatus('completed');
-          setFinalSummary(event.data.summary);
-        } else if (event.type === 'error') {
-          setStatus('failed');
-          setErrorMessage(event.data.error);
+            ]);
+          } else if (event.type === 'thought') {
+            setFeedItems((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last) return prev;
+              return [...prev.slice(0, -1), { ...last, thought: event.data.thought }];
+            });
+          } else if (event.type === 'action') {
+            const { action, subIndex, total } = event.data;
+            setFeedItems((prev) => {
+              if (typeof subIndex === 'number' && subIndex > 0) {
+                return [
+                  ...prev,
+                  {
+                    id: `step-${event.data.step}-sub-${subIndex}-${Date.now()}`,
+                    step: event.data.step,
+                    thought: `Chained action ${subIndex + 1}/${total || subIndex + 1}`,
+                    action,
+                    status: 'running',
+                    timestamp: Date.now(),
+                  },
+                ];
+              }
+              const last = prev[prev.length - 1];
+              if (!last) return prev;
+              return [...prev.slice(0, -1), { ...last, action, status: 'running' }];
+            });
+          } else if (event.type === 'action_result') {
+            setFeedItems((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last) return prev;
+              return [
+                ...prev.slice(0, -1),
+                {
+                  ...last,
+                  status: event.data.success ? 'success' : 'error',
+                  error: event.data.error,
+                },
+              ];
+            });
+          } else if (event.type === 'done') {
+            setStatus('completed');
+            setFinalSummary(event.data.summary);
+          } else if (event.type === 'error') {
+            setStatus('failed');
+            setErrorMessage(event.data.error);
+          }
         }
-      }
 
-      if (msg.type === 'FINISHED') {
-        setAgentTab(null);
-        if (msg.success) {
-          setStatus('completed');
-          if (msg.summary) setFinalSummary(msg.summary);
-        } else {
-          setStatus('failed');
-          if (msg.error) setErrorMessage(msg.error);
+        if (msg.type === 'FINISHED') {
+          setAgentTab(null);
+          if (msg.success) {
+            setStatus('completed');
+            if (msg.summary) setFinalSummary(msg.summary);
+          } else {
+            setStatus('failed');
+            if (msg.error) setErrorMessage(msg.error);
+          }
         }
-      }
 
-      if (msg.type === 'ERROR') {
-        setStatus('failed');
-        setAgentTab(null);
-        setErrorMessage(msg.error);
-      }
-    });
+        if (msg.type === 'ERROR') {
+          setStatus('failed');
+          setAgentTab(null);
+          setErrorMessage(msg.error);
+        }
+      });
 
-    port.onDisconnect.addListener(() => {
-      console.log('[Sidepanel] Port disconnected.');
-      portRef.current = null;
-    });
+      port.onDisconnect.addListener(() => {
+        console.log('[Sidepanel] Port disconnected.');
+        portRef.current = null;
+      });
 
+      return port;
+    } catch (err: unknown) {
+      console.warn('[Sidepanel] Failed to connect port:', err);
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    const port = getOrCreatePort();
     return () => {
       if (port && typeof port.disconnect === 'function') {
         port.disconnect();
       }
     };
-  }, []);
+  }, [getOrCreatePort]);
 
   // Load saved configuration and skills on mount
   useEffect(() => {
     loadStoredSkills().then(setSkills);
 
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get(['browgent_config', 'browgent_max_steps', 'browgent_mcp_endpoint'], (res) => {
-        if (res.browgent_config) setConfig(res.browgent_config);
-        if (res.browgent_max_steps) setMaxSteps(res.browgent_max_steps);
-        if (res.browgent_mcp_endpoint) setMcpEndpoint(res.browgent_mcp_endpoint);
-      });
+      chrome.storage.local.get(
+        ['browgent_config', 'browgent_max_steps', 'browgent_mcp_endpoint', 'browgent_provider_configs'],
+        (res) => {
+          const activeConfig: LLMConfig = res.browgent_config || DEFAULT_CONFIG;
+          if (res.browgent_config) setConfig(res.browgent_config);
+          if (res.browgent_max_steps) setMaxSteps(res.browgent_max_steps);
+          if (res.browgent_mcp_endpoint) setMcpEndpoint(res.browgent_mcp_endpoint);
+
+          // Per-provider settings. Upgrading installs have no map yet, so seed it
+          // from the currently active config to avoid losing their credentials.
+          const storedMap = (res.browgent_provider_configs || {}) as ProviderConfigMap;
+          setProviderConfigs(seedProviderConfigs(storedMap, activeConfig));
+        }
+      );
     }
   }, []);
+
+  const persistProviderConfigs = (map: ProviderConfigMap) => {
+    setProviderConfigs(map);
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ browgent_provider_configs: map });
+    }
+  };
 
   const handleToggleSkill = (skillId: string) => {
     const updated = skills.map((s) => (s.id === skillId ? { ...s, isActive: !s.isActive } : s));
@@ -269,11 +315,13 @@ export const App: React.FC = () => {
     saveStoredSkills(updated);
   };
 
-  const handleSaveConfig = (newConfig: LLMConfig) => {
+  const handleSaveConfig = (newConfig: LLMConfig, nextProviderConfigs?: ProviderConfigMap) => {
     setConfig(newConfig);
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.set({ browgent_config: newConfig });
     }
+    const map = nextProviderConfigs ?? stashProviderConfig(providerConfigs, newConfig);
+    persistProviderConfigs(map);
   };
 
   const handleSaveMaxSteps = (newMax: number) => {
@@ -293,29 +341,35 @@ export const App: React.FC = () => {
   const handleRun = () => {
     if (!goal.trim()) return;
 
+    const port = getOrCreatePort();
+    if (!port) {
+      setStatus('failed');
+      setErrorMessage('Could not establish connection to background service worker. Please reload the extension.');
+      return;
+    }
+
     setStatus('running');
     setFeedItems([]);
     setFinalSummary('');
     setErrorMessage('');
 
-    if (portRef.current) {
-      portRef.current.postMessage({
-        type: 'START_AGENT',
-        payload: {
-          goal,
-          llmConfig: config,
-          maxSteps,
-          skills,
-          files,
-          mcpEndpoint,
-        },
-      });
-    }
+    port.postMessage({
+      type: 'START_AGENT',
+      payload: {
+        goal,
+        llmConfig: config,
+        maxSteps,
+        skills,
+        files,
+        mcpEndpoint,
+      },
+    });
   };
 
   const handleStop = () => {
-    if (portRef.current) {
-      portRef.current.postMessage({ type: 'STOP_AGENT' });
+    const port = getOrCreatePort();
+    if (port) {
+      port.postMessage({ type: 'STOP_AGENT' });
     }
     setStatus('stopped');
   };
@@ -428,6 +482,7 @@ export const App: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         config={config}
         onSaveConfig={handleSaveConfig}
+        providerConfigs={providerConfigs}
         maxSteps={maxSteps}
         onSaveMaxSteps={handleSaveMaxSteps}
         mcpEndpoint={mcpEndpoint}

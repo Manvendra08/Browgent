@@ -263,6 +263,10 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
     const checked = node instanceof HTMLInputElement && (node.type === 'radio' || node.type === 'checkbox')
       ? node.checked
       : undefined;
+    const disabled = Boolean(
+      (node as HTMLInputElement | HTMLButtonElement | HTMLSelectElement).disabled ||
+      node.getAttribute('aria-disabled') === 'true'
+    ) || undefined;
     const ariaChecked = node.getAttribute('aria-checked') || undefined;
     const ariaSelected = node.getAttribute('aria-selected') || undefined;
     const ariaCurrent = node.getAttribute('aria-current') || undefined;
@@ -309,6 +313,7 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
       ariaLabel: ariaLabel ? sanitizeUntrustedText(ariaLabel) : undefined,
       href,
       checked,
+      disabled,
       ariaChecked,
       ariaSelected,
       ariaCurrent,
@@ -372,6 +377,9 @@ export function formatElementsForPrompt(elements: PerceivedElement[]): string {
     }
     if (el.checked !== undefined) {
       parts.push(` checked="${el.checked}"`);
+    }
+    if (el.disabled) {
+      parts.push(' disabled="true"');
     }
     if (el.ariaChecked) {
       parts.push(` aria-checked="${el.ariaChecked}"`);

@@ -16,6 +16,7 @@ export interface PerceivedElement {
   ariaLabel?: string;
   href?: string;
   checked?: boolean;
+  disabled?: boolean;
   ariaChecked?: string;
   ariaSelected?: string;
   ariaCurrent?: string;

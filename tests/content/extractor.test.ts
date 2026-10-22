@@ -80,4 +80,24 @@ describe('DOM Extractor', () => {
     expect(texts.some((t) => t.includes('NEXT'))).toBe(true);
     expect(texts.some((t) => t.includes('SUBMIT'))).toBe(true);
   });
+
+  it('extracts disabled state and formats disabled="true" into prompt', () => {
+    document.body.innerHTML = `
+      <div>
+        <button id="btn-active">Active</button>
+        <button id="btn-disabled" disabled>Disabled Button</button>
+        <input type="text" id="inp-aria" aria-disabled="true" placeholder="Aria disabled" />
+      </div>
+    `;
+
+    const elements = extractInteractiveElements(document);
+    const disabledBtn = elements.find((e) => e.text.includes('Disabled Button'));
+    const ariaDisabled = elements.find((e) => e.placeholder?.includes('Aria disabled'));
+
+    expect(disabledBtn?.disabled).toBe(true);
+    expect(ariaDisabled?.disabled).toBe(true);
+
+    const formatted = formatElementsForPrompt(elements);
+    expect(formatted).toContain('disabled="true"');
+  });
 });

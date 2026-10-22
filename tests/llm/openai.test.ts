@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { queryOpenAI } from '../../src/background/llm/openai';
+import { queryOpenAI, normalizeOpenAIEndpoint } from '../../src/background/llm/openai';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -157,5 +157,13 @@ describe('OpenAI-compatible provider', () => {
     controller.abort();
 
     await expect(promise).rejects.toThrow();
+  });
+
+  it('normalizes OpenAI-compatible base URLs', () => {
+    expect(normalizeOpenAIEndpoint('')).toBe('https://api.openai.com/v1/chat/completions');
+    expect(normalizeOpenAIEndpoint('https://openrouter.ai/api/v1')).toBe('https://openrouter.ai/api/v1/chat/completions');
+    expect(normalizeOpenAIEndpoint('http://localhost:11434/v1/')).toBe('http://localhost:11434/v1/chat/completions');
+    expect(normalizeOpenAIEndpoint('http://localhost:11434/v1/models')).toBe('http://localhost:11434/v1/chat/completions');
+    expect(normalizeOpenAIEndpoint('http://localhost:11434/v1/chat/completions')).toBe('http://localhost:11434/v1/chat/completions');
   });
 });
