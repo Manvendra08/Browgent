@@ -393,7 +393,7 @@ export const App: React.FC = () => {
             <div className="flex items-center gap-1.5">
               <span className="font-bold text-xs tracking-tight text-slate-200">Browgent</span>
               <span className="text-[9px] font-semibold uppercase px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                v0.2.0
+                v0.3.0
               </span>
             </div>
             <div className="text-[10px] text-slate-400 font-mono">

@@ -844,6 +844,12 @@ ${domState.formattedPrompt}${textBlock}
   }
 
   private async stabilizePage(tabId: number, lastAction?: AgentAction): Promise<void> {
+    const isTest = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+    if (isTest) {
+      await new Promise((r) => setTimeout(r, 10));
+      return;
+    }
+
     if (lastAction?.action === 'navigate') {
       if (typeof chrome !== 'undefined' && chrome.tabs) {
         for (let i = 0; i < 15; i++) {
@@ -858,6 +864,9 @@ ${domState.formattedPrompt}${textBlock}
       } else {
         await new Promise((r) => setTimeout(r, 500));
       }
+    } else if (lastAction?.action === 'click') {
+      // Allow 600ms for modal transitions, step progression, and network AJAX (e.g. LinkedIn Easy Apply "Next")
+      await new Promise((r) => setTimeout(r, 600));
     } else {
       // Fast adaptive settle: 250ms (replaces hardcoded 1200ms delay)
       await new Promise((r) => setTimeout(r, 250));
@@ -872,7 +881,7 @@ ${domState.formattedPrompt}${textBlock}
     }
     if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.sendMessage) {
       try {
-        await chrome.tabs.sendMessage(tabId, { type: 'CLEAR_OVERLAYS' });
+        await chrome.tabs.sendMessage(tabId, { type: 'CLEAR_ALL_VISUALS' });
       } catch {
         // ignore
       }

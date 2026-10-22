@@ -5,6 +5,8 @@ import {
   animateCursorTo,
   triggerClickRipple,
   highlightActiveElement,
+  showScrollIndicator,
+  cleanupAgentVisuals,
 } from './overlay';
 
 console.log('[Browgent] Content script active.');
@@ -50,15 +52,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'CLEAR_ALL_VISUALS') {
+    cleanupAgentVisuals();
+    sendResponse({ success: true });
+    return true;
+  }
+
   if (message.type === 'SCROLL_WINDOW') {
+    const deltaY = (message.deltaY as number) || 0;
+    const deltaX = (message.deltaX as number) || 0;
+    showScrollIndicator(deltaY, deltaX);
+
     const activeModal = findActiveModal(document);
     let scrolledModal = false;
     if (activeModal) {
       const scrollable = (activeModal.querySelector('[class*="content" i], [class*="body" i], [class*="scroll" i], form') || activeModal) as HTMLElement;
       if (scrollable && scrollable.scrollHeight > scrollable.clientHeight) {
         scrollable.scrollBy({
-          top: message.deltaY || 0,
-          left: message.deltaX || 0,
+          top: deltaY,
+          left: deltaX,
           behavior: 'smooth',
         });
         scrolledModal = true;
@@ -66,8 +78,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
     if (!scrolledModal) {
       window.scrollBy({
-        top: message.deltaY || 0,
-        left: message.deltaX || 0,
+        top: deltaY,
+        left: deltaX,
         behavior: 'smooth',
       });
     }
@@ -78,45 +90,48 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'CLICK_ELEMENT') {
     const el = resolveOwnedElement(message.elementId);
     if (el) {
+      const buttonParent = el.closest('button, [role="button"]');
+      const clickTarget = (buttonParent as HTMLElement) || el;
+
       try {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        clickTarget.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
       } catch {
         // ignore
       }
-      highlightActiveElement(el);
+      highlightActiveElement(clickTarget);
 
       // Dispatch full authentic pointer/mouse lifecycle events
       try {
-        const rect = el.getBoundingClientRect();
+        const rect = clickTarget.getBoundingClientRect();
         const clientX = Math.round(rect.left + rect.width / 2);
         const clientY = Math.round(rect.top + rect.height / 2);
-        animateCursorTo(clientX, clientY);
+        animateCursorTo(clientX, clientY, true);
         triggerClickRipple(clientX, clientY);
         const mouseOpts = { bubbles: true, cancelable: true, view: window, clientX, clientY };
         if (typeof PointerEvent !== 'undefined') {
-          el.dispatchEvent(new PointerEvent('pointerdown', mouseOpts));
+          clickTarget.dispatchEvent(new PointerEvent('pointerdown', mouseOpts));
         }
-        el.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
+        clickTarget.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
       } catch {
         // ignore
       }
 
-      el.focus();
+      clickTarget.focus();
 
       try {
-        const rect = el.getBoundingClientRect();
+        const rect = clickTarget.getBoundingClientRect();
         const clientX = Math.round(rect.left + rect.width / 2);
         const clientY = Math.round(rect.top + rect.height / 2);
         const mouseOpts = { bubbles: true, cancelable: true, view: window, clientX, clientY };
         if (typeof PointerEvent !== 'undefined') {
-          el.dispatchEvent(new PointerEvent('pointerup', mouseOpts));
+          clickTarget.dispatchEvent(new PointerEvent('pointerup', mouseOpts));
         }
-        el.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
+        clickTarget.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
       } catch {
         // ignore
       }
 
-      el.click();
+      clickTarget.click();
 
       // Find any linked or child input (for radio / checkbox)
       let associatedInput: HTMLInputElement | null = null;
@@ -144,7 +159,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
 
       // Report the fresh post-scroll rect so CDP fallback clicks the right spot
-      const domRect = el.getBoundingClientRect();
+      const domRect = clickTarget.getBoundingClientRect();
       sendResponse({
         success: true,
         rect: {
@@ -281,7 +296,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         const rect = targetInput.getBoundingClientRect();
         const clientX = Math.round(rect.left + rect.width / 2);
         const clientY = Math.round(rect.top + rect.height / 2);
-        animateCursorTo(clientX, clientY);
+        animateCursorTo(clientX, clientY, true);
       } catch {
         // ignore
       }

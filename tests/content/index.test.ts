@@ -266,4 +266,37 @@ describe('Content script message protocol', () => {
     expect(keyResponse.success).toBe(true);
     expect(keySpy).toHaveBeenCalled();
   });
+
+  it('handles SCROLL_WINDOW with visual scroll HUD and CLEAR_ALL_VISUALS cleanly', async () => {
+    const scrollSpy = vi.spyOn(window, 'scrollBy').mockImplementation(() => {});
+
+    const scrollResponse = await send({
+      type: 'SCROLL_WINDOW',
+      deltaY: 500,
+      deltaX: 0,
+    });
+
+    expect(scrollResponse.success).toBe(true);
+    expect(scrollSpy).toHaveBeenCalledWith({
+      top: 500,
+      left: 0,
+      behavior: 'smooth',
+    });
+
+    const hud = document.getElementById('browgent-scroll-hud');
+    expect(hud).not.toBeNull();
+    expect(hud?.textContent).toContain('Scrolling down');
+
+    const clearResponse = await send({
+      type: 'CLEAR_ALL_VISUALS',
+    });
+    expect(clearResponse.success).toBe(true);
+
+    const hudAfter = document.getElementById('browgent-scroll-hud');
+    expect(hudAfter).toBeNull();
+    const cursor = document.getElementById('browgent-virtual-cursor');
+    expect(cursor).toBeNull();
+
+    scrollSpy.mockRestore();
+  });
 });

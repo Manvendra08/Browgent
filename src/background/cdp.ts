@@ -85,6 +85,9 @@ export async function dispatchClick(tabId: number, x: number, y: number): Promis
     clickCount: 1,
   });
 
+  // Human-like hold duration so SPA listeners register mousedown -> mouseup cleanly
+  await new Promise((r) => setTimeout(r, 60));
+
   // 3. Mouse Release
   await sendCdpCommand(tabId, 'Input.dispatchMouseEvent', {
     type: 'mouseReleased',

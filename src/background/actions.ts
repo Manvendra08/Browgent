@@ -245,7 +245,7 @@ export async function executeAgentAction(
           throw new Error(`Element with id [${action.elementId}] not found in perception tree`);
         }
 
-        // 1. Primary: in-tab DOM click (works for React/SPA synthetic events)
+        // 1. Primary: in-tab DOM click (handles React/SPA synthetic events, visual cursor/ripple, radio/checkbox)
         const domResult = await sendDomAction(tabId, {
           type: 'CLICK_ELEMENT',
           elementId: action.elementId,
