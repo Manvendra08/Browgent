@@ -15,7 +15,16 @@ const INTERACTIVE_SELECTORS = [
   '[role="tab"]',
   '[role="menuitem"]',
   '[role="switch"]',
+  '[role="textbox"]',
+  '[role="searchbox"]',
+  '[role="combobox"]',
+  '[role="spinbutton"]',
+  '[contenteditable]',
   '[contenteditable="true"]',
+  '[contenteditable="plaintext-only"]',
+  '.ProseMirror',
+  '.ql-editor',
+  '[data-slate-editor]',
   '[tabindex]:not([tabindex="-1"])',
   '[onclick]',
   '[class*="option" i]',
@@ -271,6 +280,25 @@ export function extractModalTitle(modal: Element): string {
   return 'Modal Dialog';
 }
 
+export function isEditableElement(node: Element): boolean {
+  const tag = node.tagName.toUpperCase();
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+    return true;
+  }
+  const role = (node.getAttribute('role') || '').toLowerCase();
+  if (role === 'textbox' || role === 'searchbox' || role === 'combobox' || role === 'spinbutton') {
+    return true;
+  }
+  if ((node as HTMLElement).isContentEditable) {
+    return true;
+  }
+  if (node.hasAttribute('contenteditable')) {
+    const val = node.getAttribute('contenteditable');
+    return val !== 'false';
+  }
+  return false;
+}
+
 export function findAssociatedLabel(node: Element, doc: Document): { label?: string; group?: string } {
   let labelText: string | undefined;
   let groupText: string | undefined;
@@ -326,7 +354,32 @@ export function findAssociatedLabel(node: Element, doc: Document): { label?: str
     }
   }
 
-  // 5. Fieldset and Legend (question group for radios/checkboxes)
+  // 5. Look for enclosing question / prompt container (e.g. screening questions, rich text editors)
+  if (!labelText) {
+    const questionContainer = node.closest(
+      '[class*="question" i], [class*="prompt" i], [class*="form-group" i], [class*="form-field" i], [data-testid*="question" i], fieldset, section'
+    );
+    if (questionContainer) {
+      const headingEl = questionContainer.querySelector(
+        'h1, h2, h3, h4, h5, [class*="title" i], [class*="header" i], [class*="label" i], [class*="name" i]'
+      );
+      const descEl = questionContainer.querySelector(
+        'p, [class*="desc" i], [class*="text" i], [class*="subtitle" i]'
+      );
+      const parts: string[] = [];
+      if (headingEl && headingEl.textContent && !headingEl.contains(node)) {
+        parts.push(headingEl.textContent.trim());
+      }
+      if (descEl && descEl.textContent && descEl !== headingEl && !descEl.contains(node)) {
+        parts.push(descEl.textContent.trim());
+      }
+      if (parts.length > 0) {
+        labelText = parts.join(' - ');
+      }
+    }
+  }
+
+  // 6. Fieldset and Legend (question group for radios/checkboxes)
   const fieldset = node.closest('fieldset');
   if (fieldset) {
     const legend = fieldset.querySelector('legend');
@@ -335,7 +388,7 @@ export function findAssociatedLabel(node: Element, doc: Document): { label?: str
     }
   }
 
-  // 6. Custom radio/checkbox group headers
+  // 7. Custom radio/checkbox group headers
   if (!groupText && (node.getAttribute('type') === 'radio' || node.getAttribute('role') === 'radio' || node.getAttribute('type') === 'checkbox')) {
     const radioGroup = node.closest(
       '[data-test-form-builder-radio-button-form-component], [role="radiogroup"], .fb-radio-group, [class*="radio-group" i]'
@@ -373,12 +426,12 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
       return false;
     }
 
-    // Never skip input, textarea, or select elements even if they are inside a label
-    const isFormInput = node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.tagName === 'SELECT';
+    // Never skip input, textarea, select, or contenteditable/rich-text elements
+    const isFormInput = isEditableElement(node);
 
     // If a label wraps an input, let the input itself be the primary interactive element rather than duplicate badge
     if (node.tagName === 'LABEL') {
-      const hasChildControl = node.querySelector('input, textarea, select');
+      const hasChildControl = node.querySelector('input, textarea, select, [contenteditable], [role="textbox"]');
       if (hasChildControl) {
         return false;
       }
@@ -391,7 +444,7 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
 
     // Skip elements with zero dimensions and no text/inputs
     const text = (node.textContent || '').trim();
-    if (!text && !isFormInput && !node.getAttribute('aria-label') && !node.getAttribute('title')) {
+    if (!text && !isFormInput && !node.getAttribute('aria-label') && !node.getAttribute('title') && !node.getAttribute('placeholder')) {
       return false;
     }
 
@@ -404,8 +457,17 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
     const tagName = node.tagName.toUpperCase();
     let role = node.getAttribute('role') || undefined;
     let type = node.getAttribute('type') || undefined;
+    const isEditable = isEditableElement(node);
+    if (!role && isEditable && tagName !== 'INPUT' && tagName !== 'TEXTAREA' && tagName !== 'SELECT') {
+      role = 'textbox';
+    }
+
     const ariaLabel = node.getAttribute('aria-label') || undefined;
-    const placeholder = (node as HTMLInputElement).placeholder || undefined;
+    const placeholder =
+      (node as HTMLInputElement).placeholder ||
+      node.getAttribute('data-placeholder') ||
+      node.getAttribute('aria-placeholder') ||
+      undefined;
     const value = redactValue(node, (node as HTMLInputElement).value || undefined);
     const href = scrubUrl((node as HTMLAnchorElement).href || undefined);
     const checked = node instanceof HTMLInputElement && (node.type === 'radio' || node.type === 'checkbox')

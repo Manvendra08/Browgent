@@ -150,9 +150,30 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
       targetInput.focus();
 
-      const isEditable = targetInput.isContentEditable || targetInput.contentEditable === 'true' || targetInput.getAttribute('contenteditable') === 'true';
+      const isEditable = targetInput.isContentEditable ||
+        targetInput.contentEditable === 'true' ||
+        targetInput.getAttribute('contenteditable') === 'true' ||
+        targetInput.getAttribute('role') === 'textbox';
       if (isEditable) {
-        targetInput.textContent = message.text;
+        try {
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(targetInput);
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+          const execOk = document.execCommand('insertText', false, message.text);
+          if (!execOk) {
+            targetInput.textContent = message.text;
+          }
+        } catch {
+          targetInput.textContent = message.text;
+        }
+
+        try {
+          targetInput.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: message.text }));
+        } catch {
+          // ignore if InputEvent constructor is not available
+        }
         targetInput.dispatchEvent(new Event('input', { bubbles: true }));
         targetInput.dispatchEvent(new Event('change', { bubbles: true }));
         targetInput.dispatchEvent(new Event('blur', { bubbles: true }));

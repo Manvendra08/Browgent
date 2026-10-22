@@ -155,6 +155,36 @@ describe('DOM Extractor', () => {
     expect(state.formattedPrompt).not.toContain('Easy Apply');
     expect(state.formattedPrompt).not.toContain('Job 1');
   });
+
+  it('extracts empty rich-text contenteditable editors with question labels and placeholders', () => {
+    document.body.innerHTML = `
+      <div class="screening-question-card">
+        <h3 class="question-title">Question #1</h3>
+        <p class="question-desc">Have you worked with digital product engineering providers?</p>
+        <div class="rich-editor-wrapper">
+          <div class="toolbar">
+            <button aria-label="Bold">B</button>
+            <button aria-label="Italic">I</button>
+          </div>
+          <div class="ProseMirror ql-editor" contenteditable="true" role="textbox" data-placeholder="Enter your answer here..."></div>
+        </div>
+        <button id="next-btn">Next</button>
+      </div>
+    `;
+
+    const elements = extractInteractiveElements(document);
+    const editor = elements.find((e) => e.role === 'textbox' || e.placeholder?.includes('Enter your answer'));
+
+    expect(editor).toBeDefined();
+    expect(editor?.placeholder).toBe('Enter your answer here...');
+    expect(editor?.label).toContain('Question #1');
+    expect(editor?.label).toContain('Have you worked with digital product engineering providers');
+
+    const formatted = formatElementsForPrompt(elements);
+    expect(formatted).toContain('role="textbox"');
+    expect(formatted).toContain('placeholder="Enter your answer here..."');
+    expect(formatted).toContain('label="Question #1 - Have you worked with digital product engineering providers?"');
+  });
 });
 describe('captureDOMState page text excerpt', () => {
   beforeEach(() => {

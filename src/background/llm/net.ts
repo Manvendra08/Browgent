@@ -15,7 +15,7 @@ export function truncateErrorBody(body: string, limit: number = 500): string {
 
 export class NetworkError extends Error {}
 
-export const LLM_REQUEST_TIMEOUT_MS = 90000;
+export const LLM_REQUEST_TIMEOUT_MS = 120000;
 
 interface CombinedSignal {
   signal: AbortSignal;

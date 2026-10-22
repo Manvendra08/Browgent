@@ -244,23 +244,42 @@ export class AgentController {
         // 2. Build Prompt Messages
         const messages = this.buildPromptMessages(goal, domState);
 
-        // 3. Query LLM
+        // 3. Query LLM (with 1 automatic retry on transient timeout/network glitch)
         let decision: AgentDecision;
         try {
           decision = await queryLLM(this.llmConfig, messages, this.runAbortController?.signal);
-        } catch (llmErr: unknown) {
-          const msg = llmErr instanceof Error ? llmErr.message : String(llmErr);
-          if (this.stopRequested) {
-            await this.cleanup(tabId);
-            return { success: false, error: 'Agent execution stopped by user.' };
-          }
-          if (llmErr instanceof Error && llmErr.name === 'ActionParseError') {
+        } catch (firstErr: unknown) {
+          const firstMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+          const isTransient =
+            firstMsg.includes('timed out') ||
+            firstMsg.includes('Cannot reach') ||
+            firstMsg.includes('502') ||
+            firstMsg.includes('503') ||
+            firstMsg.includes('504');
+
+          if (isTransient && !this.stopRequested) {
+            console.warn(`[Browgent Agent] Transient LLM error (${firstMsg}), retrying step ${this.currentStep}...`);
+            onProgress({
+              type: 'thought',
+              data: {
+                step: this.currentStep,
+                thought: `LLM request encountered transient network delay (${firstMsg}). Retrying once...`,
+              },
+            });
+            await new Promise((r) => setTimeout(r, 1000));
+            try {
+              decision = await queryLLM(this.llmConfig, messages, this.runAbortController?.signal);
+            } catch (retryErr: unknown) {
+              const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+              throw new Error(`LLM Error at step ${this.currentStep}: ${retryMsg}`);
+            }
+          } else if (firstErr instanceof Error && firstErr.name === 'ActionParseError') {
             this.history.push({
               step: this.currentStep,
               thought: 'Malformed action rejected',
               action: { action: 'wait', seconds: 1 },
               success: false,
-              error: `Invalid action rejected: ${msg}`,
+              error: `Invalid action rejected: ${firstMsg}`,
               timestamp: Date.now(),
             });
             onProgress({
@@ -268,13 +287,18 @@ export class AgentController {
               data: {
                 step: this.currentStep,
                 success: false,
-                error: `Invalid action rejected: ${msg} — retry with the documented action schema`,
+                error: `Invalid action rejected: ${firstMsg} — retry with the documented action schema`,
               },
             });
             await new Promise((r) => setTimeout(r, 500));
             continue;
+          } else {
+            if (this.stopRequested) {
+              await this.cleanup(tabId);
+              return { success: false, error: 'Agent execution stopped by user.' };
+            }
+            throw new Error(`LLM Error at step ${this.currentStep}: ${firstMsg}`);
           }
-          throw new Error(`LLM Error at step ${this.currentStep}: ${msg}`);
         }
 
         onProgress({
