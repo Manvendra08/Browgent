@@ -11,6 +11,8 @@ export interface PerceivedElement {
   role?: string;
   type?: string;
   text: string;
+  label?: string;
+  group?: string;
   placeholder?: string;
   value?: string;
   ariaLabel?: string;
@@ -21,6 +23,7 @@ export interface PerceivedElement {
   ariaSelected?: string;
   ariaCurrent?: string;
   stateClasses?: string;
+  isModal?: boolean;
   priority?: number;
   rect: ElementRect;
   domNode?: Element;
@@ -31,6 +34,13 @@ export interface DOMState {
   title: string;
   elements: PerceivedElement[];
   formattedPrompt: string;
+  activeModalTitle?: string;
+  /**
+   * Bounded, whitespace-collapsed digest of the page's visible text. Interactive
+   * element labels alone cannot answer "what does this page say" goals, and the
+   * completion auditor needs real page content to ground a verdict.
+   */
+  textExcerpt: string;
   viewport: {
     width: number;
     height: number;

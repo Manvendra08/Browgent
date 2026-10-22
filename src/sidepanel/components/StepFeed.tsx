@@ -178,10 +178,13 @@ export const StepFeed: React.FC<StepFeedProps> = ({
             )}
 
             {/* Action Badge */}
-            <div className="flex items-center justify-between">
-              <div>{getActionBadge(item.action)}</div>
+            <div className="flex items-start justify-between gap-2">
+              <div className="shrink-0">{getActionBadge(item.action)}</div>
               {item.error && (
-                <span className="text-[10px] text-rose-400 max-w-[150px] truncate" title={item.error}>
+                <span
+                  className="text-[10px] text-rose-400 leading-relaxed text-right break-words whitespace-pre-wrap min-w-0"
+                  title={item.error}
+                >
                   {item.error}
                 </span>
               )}

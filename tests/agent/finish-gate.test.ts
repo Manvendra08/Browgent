@@ -111,3 +111,93 @@ describe('AgentController finish verification gate', () => {
     expect(result.error).toContain('still unanswered');
   });
 });
+describe('AgentController question-goal verification', () => {
+  it('accepts a grounded answer for a question goal without requiring a page state change', async () => {
+    mockedQueryLLM.mockResolvedValue({
+      thought: 'The listing details answer the question',
+      action: {
+        action: 'finish',
+        summary:
+          'LinkedIn shows legal roles because your profile keywords are CLM and legal, not project delivery; the matched listing requires legal risk and governance experience.',
+      },
+    });
+    mockedQueryLLMRaw.mockResolvedValue(
+      '```json\n{"goalKind": "question", "confirmed": true, "evidence": "The job detail pane shows legal risk and governance requirements matching the user profile, and the answer cites them"}\n```'
+    );
+
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+    });
+
+    const result = await controller.run(1, 'why is linkedin showing me legal jobs', () => {});
+
+    expect(result.success).toBe(true);
+    expect(result.summary).toContain('legal roles');
+    expect(mockedQueryLLMRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('still rejects a question answer the page does not support', async () => {
+    mockedQueryLLM.mockResolvedValue({
+      thought: 'Generic answer',
+      action: { action: 'finish', summary: 'LinkedIn is broken.' },
+    });
+    mockedQueryLLMRaw.mockResolvedValue(
+      '```json\n{"goalKind": "question", "confirmed": false, "evidence": "The answer is generic filler and no job requirements are visible on the captured page"}\n```'
+    );
+
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+    });
+
+    const result = await controller.run(1, 'why is linkedin showing me legal jobs', () => {});
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Completion could not be verified');
+    expect(result.error).toContain('generic filler');
+  });
+
+  it('sends the proposed answer and page text to the auditor', async () => {
+    vi.stubGlobal('chrome', {
+      runtime: { lastError: undefined },
+      tabs: {
+        get: vi.fn().mockResolvedValue({ id: 1, url: 'https://www.linkedin.com/jobs/' }),
+        sendMessage: vi.fn((_id, _msg, cb) =>
+          cb({
+            success: true,
+            data: {
+              url: 'https://www.linkedin.com/jobs/',
+              title: 'Head of Legal Affairs | LinkedIn',
+              elements: [],
+              formattedPrompt: 'No elements detected.',
+              textExcerpt: 'Business leadership role. Identify legal and regulatory risks early.',
+              viewport: { width: 1280, height: 800, scrollX: 0, scrollY: 0 },
+            },
+          })
+        ),
+      },
+    });
+
+    mockedQueryLLM.mockResolvedValue({
+      thought: 'Done',
+      action: { action: 'finish', summary: 'Unique answer marker ABC123' },
+    });
+    mockedQueryLLMRaw.mockResolvedValue(
+      '```json\n{"goalKind": "question", "confirmed": false, "evidence": "not yet"}\n```'
+    );
+
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 1,
+    });
+
+    await controller.run(1, 'summarize this page', () => {});
+
+    const auditMessages = mockedQueryLLMRaw.mock.calls[0][1];
+    const auditPrompt = JSON.stringify(auditMessages);
+    expect(auditPrompt).toContain('Unique answer marker ABC123');
+    expect(auditPrompt).toContain('PAGE TEXT (excerpt)');
+    expect(auditPrompt).toContain('Identify legal and regulatory risks');
+
+    vi.unstubAllGlobals();
+  });
+});

@@ -222,28 +222,176 @@ export function isElementVisible(el: Element): boolean {  // Check inline styles
   return true;
 }
 
+export const MODAL_SELECTORS = [
+  'dialog[open]',
+  '[aria-modal="true"]',
+  '[role="dialog"]',
+  '[role="alertdialog"]',
+  '.artdeco-modal',
+  '.jobs-easy-apply-modal',
+].join(', ');
+
+export function findActiveModal(doc: Document = document): Element | null {
+  const candidates = Array.from(doc.querySelectorAll(MODAL_SELECTORS));
+  for (const candidate of candidates) {
+    if (isElementVisible(candidate)) {
+      if (candidate.getBoundingClientRect) {
+        const r = candidate.getBoundingClientRect();
+        // In real browsers, verify visible dimensions; in test environments (jsdom where rect is 0x0), accept if visible
+        if ((r.width === 0 && r.height === 0) || (r.width >= 50 && r.height >= 50)) {
+          return candidate;
+        }
+      } else {
+        return candidate;
+      }
+    }
+  }
+  return null;
+}
+
+export function extractModalTitle(modal: Element): string {
+  const labelledBy = modal.getAttribute('aria-labelledby');
+  if (labelledBy && modal.ownerDocument) {
+    const titleEl = modal.ownerDocument.getElementById(labelledBy);
+    if (titleEl && titleEl.textContent) {
+      return sanitizeUntrustedText(titleEl.textContent.trim().replace(/\s+/g, ' '));
+    }
+  }
+  const ariaLabel = modal.getAttribute('aria-label');
+  if (ariaLabel) {
+    return sanitizeUntrustedText(ariaLabel.trim().replace(/\s+/g, ' '));
+  }
+  const heading = modal.querySelector('h1, h2, h3, [class*="header" i], [class*="title" i]');
+  if (heading && heading.textContent) {
+    const text = heading.textContent.trim().replace(/\s+/g, ' ');
+    if (text.length > 0 && text.length <= 100) {
+      return sanitizeUntrustedText(text);
+    }
+  }
+  return 'Modal Dialog';
+}
+
+export function findAssociatedLabel(node: Element, doc: Document): { label?: string; group?: string } {
+  let labelText: string | undefined;
+  let groupText: string | undefined;
+
+  // 1. aria-labelledby
+  const labelledBy = node.getAttribute('aria-labelledby');
+  if (labelledBy) {
+    const ids = labelledBy.split(/\s+/);
+    const texts = ids
+      .map((id) => doc.getElementById(id)?.textContent?.trim())
+      .filter((t): t is string => Boolean(t));
+    if (texts.length > 0) {
+      labelText = texts.join(' ');
+    }
+  }
+
+  // 2. <label for="node.id">
+  if (!labelText && node.id) {
+    try {
+      const escapedId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(node.id) : node.id.replace(/"/g, '\\"');
+      const labelEl = doc.querySelector(`label[for="${escapedId}"]`);
+      if (labelEl && labelEl.textContent) {
+        labelText = labelEl.textContent.trim();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 3. Parent <label>
+  if (!labelText) {
+    const parentLabel = node.closest('label');
+    if (parentLabel && parentLabel !== node) {
+      const clone = parentLabel.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll('input, select, textarea').forEach((inp) => inp.remove());
+      const txt = clone.textContent?.trim();
+      if (txt) {
+        labelText = txt;
+      }
+    }
+  }
+
+  // 4. Preceding sibling label or container label (.fb-single-line-text, .form-group, etc.)
+  if (!labelText) {
+    const container = node.closest(
+      '.fb-single-line-text, .fb-form-element, .form-group, .form-field, [data-test-form-element], .artdeco-text-input'
+    );
+    if (container) {
+      const groupLabel = container.querySelector('label, [class*="label" i]');
+      if (groupLabel && groupLabel !== node && groupLabel.textContent) {
+        labelText = groupLabel.textContent.trim();
+      }
+    }
+  }
+
+  // 5. Fieldset and Legend (question group for radios/checkboxes)
+  const fieldset = node.closest('fieldset');
+  if (fieldset) {
+    const legend = fieldset.querySelector('legend');
+    if (legend && legend.textContent) {
+      groupText = legend.textContent.trim();
+    }
+  }
+
+  // 6. Custom radio/checkbox group headers
+  if (!groupText && (node.getAttribute('type') === 'radio' || node.getAttribute('role') === 'radio' || node.getAttribute('type') === 'checkbox')) {
+    const radioGroup = node.closest(
+      '[data-test-form-builder-radio-button-form-component], [role="radiogroup"], .fb-radio-group, [class*="radio-group" i]'
+    );
+    if (radioGroup) {
+      const header = radioGroup.querySelector('legend, [class*="header" i], [class*="title" i], [class*="legend" i], [class*="label" i]');
+      if (header && header.textContent) {
+        groupText = header.textContent.trim();
+      }
+    }
+  }
+
+  return {
+    label: labelText ? sanitizeUntrustedText(labelText.replace(/\s+/g, ' ')) : undefined,
+    group: groupText ? sanitizeUntrustedText(groupText.replace(/\s+/g, ' ')) : undefined,
+  };
+}
+
 export function extractInteractiveElements(doc: Document = document): PerceivedElement[] {
   const elements: PerceivedElement[] = [];
   const rawNodes = Array.from(doc.querySelectorAll(INTERACTIVE_SELECTORS));
   const idState = getIdState(doc);
   resetIfPageReplaced(idState);
 
-  // Filter out elements that are inside another extracted label/button with the same text to prevent duplicate badges
+  const activeModal = findActiveModal(doc);
+
+  // Filter out elements
   const filteredNodes = rawNodes.filter((node) => {
     if (!isElementVisible(node)) {
       return false;
     }
 
+    // When an active modal dialog is displayed, prioritize elements inside it exclusively
+    if (activeModal && !activeModal.contains(node)) {
+      return false;
+    }
+
+    // Never skip input, textarea, or select elements even if they are inside a label
+    const isFormInput = node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.tagName === 'SELECT';
+
+    // If a label wraps an input, let the input itself be the primary interactive element rather than duplicate badge
+    if (node.tagName === 'LABEL') {
+      const hasChildControl = node.querySelector('input, textarea, select');
+      if (hasChildControl) {
+        return false;
+      }
+    }
+
     // Skip nested elements inside a label if the label itself is already interactive
-    if (node.tagName !== 'LABEL' && node.closest('label') && rawNodes.includes(node.closest('label')!)) {
-      // If it's the input inside the label, let the label represent the clickable target with text
+    if (!isFormInput && node.closest('label') && rawNodes.includes(node.closest('label')!)) {
       return false;
     }
 
     // Skip elements with zero dimensions and no text/inputs
     const text = (node.textContent || '').trim();
-    const isInput = node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.tagName === 'SELECT';
-    if (!text && !isInput && !node.getAttribute('aria-label') && !node.getAttribute('title')) {
+    if (!text && !isFormInput && !node.getAttribute('aria-label') && !node.getAttribute('title')) {
       return false;
     }
 
@@ -271,6 +419,9 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
     const ariaSelected = node.getAttribute('aria-selected') || undefined;
     const ariaCurrent = node.getAttribute('aria-current') || undefined;
     const stateClasses = readStateClasses(node);
+
+    const isInsideModal = Boolean(activeModal && activeModal.contains(node));
+    const { label, group } = findAssociatedLabel(node, doc);
 
     // If it's a label containing a radio or checkbox, annotate its role for the LLM
     if (tagName === 'LABEL') {
@@ -308,6 +459,8 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
       role,
       type,
       text,
+      label,
+      group,
       placeholder: placeholder ? sanitizeUntrustedText(placeholder) : undefined,
       value,
       ariaLabel: ariaLabel ? sanitizeUntrustedText(ariaLabel) : undefined,
@@ -318,7 +471,8 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
       ariaSelected,
       ariaCurrent,
       stateClasses,
-      priority: viewportPriority(rect, doc),
+      isModal: isInsideModal,
+      priority: isInsideModal ? -1 : viewportPriority(rect, doc),
       rect,
       domNode: node,
     });
@@ -329,7 +483,7 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
   return elements;
 }
 
-export function formatElementsForPrompt(elements: PerceivedElement[]): string {
+export function formatElementsForPrompt(elements: PerceivedElement[], activeModalTitle?: string): string {
   if (elements.length === 0) {
     return 'No visible interactive elements detected on this page.';
   }
@@ -343,6 +497,11 @@ export function formatElementsForPrompt(elements: PerceivedElement[]): string {
   let usedChars = 0;
   let usedElements = 0;
   let omitted = 0;
+
+  if (activeModalTitle) {
+    lines.push(`[ACTIVE MODAL DIALOG DETECTED: "${activeModalTitle}"]`);
+    lines.push('A modal dialog is currently open on top of the page. You MUST interact with the modal dialog elements first to complete or submit the form.');
+  }
 
   for (const el of candidates) {
     if (usedElements >= MAX_PERCEIVED_ELEMENTS) {
@@ -363,7 +522,13 @@ export function formatElementsForPrompt(elements: PerceivedElement[]): string {
 
     parts.push(`[${el.id}] <${tagSpec}>`);
 
-    if (el.text) {
+    if (el.group) {
+      parts.push(` group="${el.group}"`);
+    }
+    if (el.label) {
+      parts.push(` label="${el.label}"`);
+    }
+    if (el.text && el.text !== el.label && el.text !== el.group) {
       parts.push(` ${el.text}`);
     }
     if (el.placeholder) {
@@ -372,7 +537,7 @@ export function formatElementsForPrompt(elements: PerceivedElement[]): string {
     if (el.value) {
       parts.push(` value="${el.value}"`);
     }
-    if (el.ariaLabel && el.ariaLabel !== el.text) {
+    if (el.ariaLabel && el.ariaLabel !== el.text && el.ariaLabel !== el.label) {
       parts.push(` aria-label="${el.ariaLabel}"`);
     }
     if (el.checked !== undefined) {
@@ -417,9 +582,25 @@ export function formatElementsForPrompt(elements: PerceivedElement[]): string {
   return [...lines, ...trailing].join('\n');
 }
 
+export const MAX_TEXT_EXCERPT_CHARS = 4000;
+
+export function extractVisibleText(doc: Document = document, limit = MAX_TEXT_EXCERPT_CHARS): string {
+  const body = doc.body;
+  if (!body) return '';
+
+  const raw = (body.innerText || body.textContent || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+  if (raw.length <= limit) return raw;
+
+  return `${raw.slice(0, limit)}…`;
+}
+
 export function captureDOMState(doc: Document = document): DOMState {
+  const activeModal = findActiveModal(doc);
+  const activeModalTitle = activeModal ? extractModalTitle(activeModal) : undefined;
   const elements = extractInteractiveElements(doc);
-  const formattedPrompt = formatElementsForPrompt(elements);
+  const formattedPrompt = formatElementsForPrompt(elements, activeModalTitle);
+  const textExcerpt = extractVisibleText(doc);
 
   const scrollX = typeof window !== 'undefined' ? window.scrollX || 0 : 0;
   const scrollY = typeof window !== 'undefined' ? window.scrollY || 0 : 0;
@@ -431,6 +612,8 @@ export function captureDOMState(doc: Document = document): DOMState {
     title: doc.title || '',
     elements,
     formattedPrompt,
+    activeModalTitle,
+    textExcerpt,
     viewport: {
       width,
       height,
