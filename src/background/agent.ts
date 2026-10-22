@@ -550,17 +550,61 @@ export class AgentController {
       });
     };
 
-    try {
-      return await sendMsg();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('Receiving end does not exist') || msg.includes('Could not establish connection')) {
-        const tab = await chrome.tabs.get(tabId);
-        await this.ensureContentScript(tabId, tab.url);
+    const isTransitionOrBfCacheError = (errorMsg: string): boolean => {
+      const lower = errorMsg.toLowerCase();
+      return (
+        lower.includes('back/forward cache') ||
+        lower.includes('message channel is closed') ||
+        lower.includes('message channel closed') ||
+        lower.includes('receiving end does not exist') ||
+        lower.includes('could not establish connection') ||
+        lower.includes('frame with id 0 was removed') ||
+        lower.includes('cannot access contents of url')
+      );
+    };
+
+    const isTest = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+
+    // Attempt retrieval with recovery for bfcache, page navigations, and re-injections
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
         return await sendMsg();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (isTransitionOrBfCacheError(msg) && attempt < 2) {
+          console.warn(
+            `[Browgent Agent] Page transition / bfcache detected (${msg}), recovering content script (attempt ${attempt + 1}/3)...`
+          );
+
+          if (!isTest) {
+            // Wait for tab loading to finish
+            for (let i = 0; i < 25; i++) {
+              try {
+                const freshTab = await chrome.tabs.get(tabId);
+                if (freshTab.status === 'complete') break;
+              } catch {
+                // ignore
+              }
+              await new Promise((r) => setTimeout(r, 100));
+            }
+          }
+
+          const freshTab = await chrome.tabs.get(tabId);
+          if (isRestrictedUrl(freshTab.url)) {
+            throw new Error(
+              `Cannot automate internal browser page (${freshTab.url}). ${RESTRICTED_URL_HINT}`
+            );
+          }
+
+          await this.ensureContentScript(tabId, freshTab.url);
+          await new Promise((r) => setTimeout(r, isTest ? 10 : 200));
+          continue;
+        }
+        throw err;
       }
-      throw err;
     }
+
+    throw new Error('Failed to capture page DOM state after bfcache/navigation recovery.');
   }
 
   private async captureViewportScreenshot(): Promise<string | null> {
@@ -850,22 +894,21 @@ ${domState.formattedPrompt}${textBlock}
       return;
     }
 
-    if (lastAction?.action === 'navigate') {
-      if (typeof chrome !== 'undefined' && chrome.tabs) {
-        for (let i = 0; i < 15; i++) {
-          try {
-            const tab = await chrome.tabs.get(tabId);
-            if (tab.status === 'complete') break;
-          } catch {
-            break;
-          }
-          await new Promise((r) => setTimeout(r, 100));
+    // Always check if the tab is currently loading (from navigate, link clicks, form submissions, or redirects)
+    if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.get === 'function') {
+      for (let i = 0; i < 35; i++) {
+        try {
+          const tab = await chrome.tabs.get(tabId);
+          if (tab.status === 'complete') break;
+        } catch {
+          // Tab may be navigating or briefly reloading
         }
-      } else {
-        await new Promise((r) => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, 100));
       }
-    } else if (lastAction?.action === 'click') {
-      // Allow 600ms for modal transitions, step progression, and network AJAX (e.g. LinkedIn Easy Apply "Next")
+    }
+
+    if (lastAction?.action === 'click') {
+      // Allow 600ms for modal transitions, step progression, and network AJAX (e.g. LinkedIn Easy Apply "Next", Google Flights queries)
       await new Promise((r) => setTimeout(r, 600));
     } else {
       // Fast adaptive settle: 250ms (replaces hardcoded 1200ms delay)

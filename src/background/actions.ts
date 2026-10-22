@@ -245,11 +245,42 @@ export async function executeAgentAction(
           throw new Error(`Element with id [${action.elementId}] not found in perception tree`);
         }
 
+        let initialUrl: string | undefined;
+        if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.get === 'function') {
+          try {
+            const initialTab = await chrome.tabs.get(tabId);
+            initialUrl = initialTab?.url;
+          } catch {
+            // ignore
+          }
+        }
+
         // 1. Primary: in-tab DOM click (handles React/SPA synthetic events, visual cursor/ripple, radio/checkbox)
         const domResult = await sendDomAction(tabId, {
           type: 'CLICK_ELEMENT',
           elementId: action.elementId,
         });
+
+        // If the message channel closed or reported bfcache because the click initiated page navigation:
+        if (!domResult.success && typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.get === 'function') {
+          try {
+            const currentTab = await chrome.tabs.get(tabId);
+            const urlChanged = Boolean(initialUrl && currentTab?.url && currentTab.url !== initialUrl);
+            const isLoading = currentTab?.status === 'loading';
+            const isBfCacheError = Boolean(
+              domResult.error && (
+                domResult.error.includes('back/forward cache') ||
+                domResult.error.includes('message channel closed')
+              )
+            );
+            if (urlChanged || isLoading || isBfCacheError) {
+              return { success: true };
+            }
+          } catch {
+            // ignore
+          }
+        }
+
         if (domResult.success) {
           return { success: true };
         }
@@ -257,6 +288,16 @@ export async function executeAgentAction(
         // 2. Fallback: single CDP hardware click (never both — avoids double events)
         const freshRect = await getFreshElementRect(tabId, action.elementId);
         if (!freshRect) {
+          if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.get === 'function') {
+            try {
+              const currentTab = await chrome.tabs.get(tabId);
+              if (currentTab?.status === 'loading' || (initialUrl && currentTab?.url && currentTab.url !== initialUrl)) {
+                return { success: true };
+              }
+            } catch {
+              // ignore
+            }
+          }
           return {
             success: false,
             error: `Element with id [${action.elementId}] is no longer clickable (stale element, refusing to click stale coordinates)`,

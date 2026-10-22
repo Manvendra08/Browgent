@@ -91,7 +91,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const el = resolveOwnedElement(message.elementId);
     if (el) {
       const buttonParent = el.closest('button, [role="button"]');
-      const clickTarget = (buttonParent as HTMLElement) || el;
+      const anchorParent = el.closest('a');
+      const clickTarget = (buttonParent as HTMLElement) || (anchorParent as HTMLElement) || el;
+
+      // Keep automated navigation inside the current active tab
+      if (clickTarget instanceof HTMLAnchorElement && clickTarget.target === '_blank') {
+        clickTarget.target = '_self';
+      }
+      const enclosingLink = clickTarget.closest('a');
+      if (enclosingLink && enclosingLink.target === '_blank') {
+        enclosingLink.target = '_self';
+      }
 
       try {
         clickTarget.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
@@ -100,11 +110,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       highlightActiveElement(clickTarget);
 
+      // Pre-compute domRect before clicking so navigation won't lose coordinates
+      const domRect = clickTarget.getBoundingClientRect();
+      const rectPayload = {
+        x: Math.round(domRect.x || domRect.left || 0),
+        y: Math.round(domRect.y || domRect.top || 0),
+        width: Math.round(domRect.width || 0),
+        height: Math.round(domRect.height || 0),
+      };
+
       // Dispatch full authentic pointer/mouse lifecycle events
       try {
-        const rect = clickTarget.getBoundingClientRect();
-        const clientX = Math.round(rect.left + rect.width / 2);
-        const clientY = Math.round(rect.top + rect.height / 2);
+        const clientX = Math.round(rectPayload.x + rectPayload.width / 2);
+        const clientY = Math.round(rectPayload.y + rectPayload.height / 2);
         animateCursorTo(clientX, clientY, true);
         triggerClickRipple(clientX, clientY);
         const mouseOpts = { bubbles: true, cancelable: true, view: window, clientX, clientY };
@@ -119,9 +137,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       clickTarget.focus();
 
       try {
-        const rect = clickTarget.getBoundingClientRect();
-        const clientX = Math.round(rect.left + rect.width / 2);
-        const clientY = Math.round(rect.top + rect.height / 2);
+        const clientX = Math.round(rectPayload.x + rectPayload.width / 2);
+        const clientY = Math.round(rectPayload.y + rectPayload.height / 2);
         const mouseOpts = { bubbles: true, cancelable: true, view: window, clientX, clientY };
         if (typeof PointerEvent !== 'undefined') {
           clickTarget.dispatchEvent(new PointerEvent('pointerup', mouseOpts));
@@ -158,16 +175,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         associatedInput.dispatchEvent(new Event('change', { bubbles: true }));
       }
 
-      // Report the fresh post-scroll rect so CDP fallback clicks the right spot
-      const domRect = clickTarget.getBoundingClientRect();
       sendResponse({
         success: true,
-        rect: {
-          x: Math.round(domRect.x || domRect.left || 0),
-          y: Math.round(domRect.y || domRect.top || 0),
-          width: Math.round(domRect.width || 0),
-          height: Math.round(domRect.height || 0),
-        },
+        rect: rectPayload,
       });
     } else {
       sendResponse({ success: false, error: `Element with id ${message.elementId} not found in DOM` });
