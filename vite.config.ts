@@ -68,7 +68,14 @@ export default defineConfig({
       reporter: ['text', 'lcov'],
       reportsDirectory: './coverage',
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/**/*.d.ts', 'src/manifest.json'],
+      // Type-only modules and the manifest carry no executable code.
+      exclude: ['src/**/*.d.ts', 'src/**/types.ts', 'src/manifest.json'],
+      thresholds: {
+        statements: 69,
+        branches: 67,
+        functions: 63,
+        lines: 69,
+      },
     },
   },
 });

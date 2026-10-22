@@ -7,7 +7,7 @@ Browgent is a client-side autonomous web agent with **no backend and no relay se
 ## Key Features
 
 - **Direct In-Browser CDP Automation**: Low-level mouse clicks (`Input.dispatchMouseEvent`) and keystrokes (`Input.dispatchKeyEvent`) through `chrome.debugger`.
-- **Token-Efficient DOM Perception**: In-page semantic extractor tags interactive elements with numeric badges (`[1]`, `[2]`, `[3]`) and formats the page state into a compact prompt payload (element text is truncated to 100 characters per element).
+- **Token-Efficient DOM Perception**: In-page semantic extractor tags interactive elements with stable numeric ids (`[7]`, `[8]`, ...) and formats the page state into a compact prompt payload (element text is truncated to 100 characters per element). Ids are monotonic per document and never reused, so an id always refers to the same element for the life of the page.
 - **Unified Multi-Provider LLM Engine**:
   - **OmniRoute / Local Routers**: Built-in preset (`http://localhost:20128/v1/chat/completions`) with model alias resolution (`free`, `kilo`, `anti`, `gp`, `glm`, `bigp`).
   - **OpenAI**: Direct `chat/completions` integration.
@@ -70,14 +70,14 @@ Browgent requires **Chrome 114 or newer** (`chrome.sidePanel`).
 | `npm run package` | Builds, then zips `dist/` into `browgent-<version>.zip` (Chrome Web Store uploadable; `manifest.json` sits at the zip root). Uses only Node built-ins, so it works on Windows PowerShell without the `zip` CLI. |
 | `npm test` | Vitest unit/integration suite. |
 | `npm run test:watch` | Vitest in watch mode. |
-| `npm run test:coverage` | Vitest with V8 coverage (report in `coverage/`). |
+| `npm run test:coverage` | Vitest with V8 coverage (report in `coverage/`). Coverage thresholds are enforced, so the command fails if coverage regresses. |
 | `npm run typecheck` | `tsc --noEmit`. |
 | `npm run lint` / `npm run lint:fix` | ESLint (flat config) over the repository. |
 | `npm run format` / `npm run format:check` | Prettier write / check. |
 
 ### 4. Continuous Integration
 
-`.github/workflows/ci.yml` runs on every push and pull request: **lint → typecheck → test → build**, then uploads `dist/` as a build artifact (Node 20 and 22).
+`.github/workflows/ci.yml` runs on every push and pull request: **lint → typecheck → test (with coverage thresholds) → build**, then uploads `dist/` as a build artifact (Node 20 and 22).
 
 ---
 
