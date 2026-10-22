@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Browgent - Autonomous AI Browser Agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Autonomous Native AI Browser Agent with local LLM, OmniRoute, Skills, Files, and CDP support",
   "minimum_chrome_version": "114",
   "permissions": [
