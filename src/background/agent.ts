@@ -16,26 +16,30 @@ export const MAX_FINISH_REJECTIONS = 2;
 export const MAX_BATCH_ACTIONS = 3;
 export const MAX_HISTORY_CHARS = 8000;
 /** Page prose handed to the action prompt. Bounded so a long page cannot blow the context budget. */
-export const MAX_PROMPT_TEXT_CHARS = 2000;
+export const MAX_PROMPT_TEXT_CHARS = 8000;
 
 export type GoalKind = 'action' | 'question';
+
+const STRICT_MUTATING_ACTION_RE =
+  /\b(click\s+submit|fill\b|type\s+my|submit\b|apply\b|buy\b|purchase\b|order\b|book\b|reserve\b|sign\s*up|register\b|delete\b|remove\b|cancel\b|complete\b)/i;
+
+const SEARCH_OR_QUESTION_RE =
+  /\b(why|what|which|how|explain|summari[sz]e|compare|describe|list|find out|tell me|who|where|when|search|find|check|lookup|look up|get|cheapest|lowest|best price|prices?|costs?|fares?|flights?|hotels?|options?)\b|\?\s*$/i;
 
 const ACTION_GOAL_RE =
   /\b(click|fill|type|enter|submit|apply|buy|purchase|order|send|post|upload|download|select|choose|complete|answer|register|sign up|book|schedule|delete|remove|cancel|start|install|navigate|open|go to|log in|login)\b/i;
 
-const QUESTION_GOAL_RE =
-  /\b(why|what|which|how|explain|summari[sz]e|compare|describe|list|find out|tell me|who|where|when)\b|\?\s*$/i;
-
 /**
  * Decide whether a goal asks the browser to change something or to explain
- * something. Action intent wins outright: a goal that also asks a question still
- * needs hard completion evidence, so an agent cannot dodge the strict gate by
- * phrasing. Unrecognised goals stay 'action' - the fail-closed default.
+ * something. Mutating actions require page mutation evidence, while search,
+ * lookup, and informational queries are verified by page content answers.
  */
 export function classifyGoalKind(goal: string): GoalKind {
   const text = goal.trim();
+  if (STRICT_MUTATING_ACTION_RE.test(text)) return 'action';
+  if (SEARCH_OR_QUESTION_RE.test(text)) return 'question';
   if (ACTION_GOAL_RE.test(text)) return 'action';
-  return QUESTION_GOAL_RE.test(text) ? 'question' : 'action';
+  return 'action';
 }
 
 interface CompletionVerdict {
@@ -675,9 +679,17 @@ INSTRUCTIONS:
 6. FOR KEYBOARD & HOVER ACTIONS:
    - Use "press_key" with keys like "Enter", "Tab", "Escape", "ArrowDown", or "Backspace" to trigger hotkeys or submit forms.
    - Use "hover" on an elementId to trigger hover menus, dropdown triggers, or tooltips.
-7. Only call "finish" with concrete on-page evidence of completion in the summary (e.g. completion banner, score screen, all questions marked answered). An auditor re-reads the live page when finish is called; a finish that cannot be verified is REJECTED, and if it cannot be verified again the run is reported as failed — so revisit unanswered items first.
-8. If the goal is impossible, call "fail" with the explanation.
-9. The "wait" action is capped at 10 seconds per call; for longer pauses issue several waits.
+7. FOR SEARCH, RESEARCH, PRICE COMPARISON & INFORMATION RETRIEVAL GOALS:
+   - When the user asks to "search", "find", "check price", "get cheapest", "compare", or look up information (e.g. flight prices, hotel rates, search results):
+   - The primary deliverable is finding and reporting the answer!
+   - As soon as the relevant information, flight options, prices, or search results are displayed on the page (in the elements list, page text, or screenshot), CALL "finish" WITH A COMPLETE, STRUCTURED SUMMARY OF THE RESULTS!
+   - Provide concrete details (e.g., flight airlines, departure/arrival times, durations, stops, and exact prices in ₹ or $).
+   - Do NOT keep clicking redundant buttons or links if the answer is already visible on the screen.
+8. Only call "finish" with concrete on-page evidence of completion in the summary (e.g. completion banner, score screen, all questions marked answered, or the exact search results/prices found on the page). An auditor re-reads the live page when finish is called; a finish that cannot be verified is REJECTED, and if it cannot be verified again the run is reported as failed — so revisit unanswered items first.
+9. IF AN ACTION FAILS OR ENCOUNTERS AN ERROR (e.g. element moved, popup opened, or page navigated):
+   - Do NOT repeat the failed action. Re-evaluate the new page state, and choose an alternative action or read the results.
+10. If the goal is impossible, call "fail" with the explanation.
+11. The "wait" action is capped at 10 seconds per call; for longer pauses issue several waits.
 
 RESPONSE FORMAT:
 You MUST respond with a valid JSON block enclosed in \`\`\`json ... \`\`\`:

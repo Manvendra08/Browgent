@@ -14,6 +14,9 @@ const INTERACTIVE_SELECTORS = [
   '[role="option"]',
   '[role="tab"]',
   '[role="menuitem"]',
+  '[role="menuitemradio"]',
+  '[role="menuitemcheckbox"]',
+  '[role="gridcell"]',
   '[role="switch"]',
   '[role="textbox"]',
   '[role="searchbox"]',
@@ -27,6 +30,8 @@ const INTERACTIVE_SELECTORS = [
   '[data-slate-editor]',
   '[tabindex]:not([tabindex="-1"])',
   '[onclick]',
+  '[aria-haspopup]',
+  '[aria-expanded]',
   '[class*="option" i]',
   '[class*="choice" i]',
   '[class*="answer" i]',
@@ -644,7 +649,7 @@ export function formatElementsForPrompt(elements: PerceivedElement[], activeModa
   return [...lines, ...trailing].join('\n');
 }
 
-export const MAX_TEXT_EXCERPT_CHARS = 4000;
+export const MAX_TEXT_EXCERPT_CHARS = 10000;
 
 export function extractVisibleText(doc: Document = document, limit = MAX_TEXT_EXCERPT_CHARS): string {
   const body = doc.body;

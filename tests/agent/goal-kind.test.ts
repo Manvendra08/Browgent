@@ -7,6 +7,9 @@ describe('classifyGoalKind', () => {
     expect(classifyGoalKind('summarize this page')).toBe('question');
     expect(classifyGoalKind('explain what this chart shows')).toBe('question');
     expect(classifyGoalKind('what is the price')).toBe('question');
+    expect(classifyGoalKind('Search cheapest from pune to lucknow on 5th november')).toBe('question');
+    expect(classifyGoalKind('go to google.com and Search cheapest from pune to lucknow on 5th november')).toBe('question');
+    expect(classifyGoalKind('find cheapest flight to paris')).toBe('question');
   });
 
   it('treats page-mutating goals as actions', () => {
