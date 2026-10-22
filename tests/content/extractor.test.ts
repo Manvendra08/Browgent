@@ -33,12 +33,19 @@ describe('DOM Extractor', () => {
   it('formats elements into compact token-efficient markdown', () => {
     const elements = extractInteractiveElements(document);
     const formatted = formatElementsForPrompt(elements);
-    expect(formatted).toContain('[1] <button> Submit Order');
-    expect(formatted).toContain('[2] <a> Sign In');
-    expect(formatted).toContain('[3] <input type="text"> placeholder="Search products..."');
-    expect(formatted).toContain('[4] <textarea> placeholder="Leave comments..."');
-    expect(formatted).toContain('[5] <select>');
-    expect(formatted).toContain('[6] <div role="button"> Custom Button');
+    const button = elements.find((e) => e.text.includes('Submit Order'));
+    const link = elements.find((e) => e.text.includes('Sign In'));
+    const input = elements.find((e) => e.placeholder?.includes('Search products'));
+    const textarea = elements.find((e) => e.placeholder?.includes('Leave comments'));
+    const select = elements.find((e) => e.tagName === 'SELECT');
+    const roleButton = elements.find((e) => e.text.includes('Custom Button'));
+
+    expect(formatted).toContain(`[${button?.id}] <button> Submit Order`);
+    expect(formatted).toContain(`[${link?.id}] <a> Sign In`);
+    expect(formatted).toContain(`[${input?.id}] <input type="text"> placeholder="Search products..."`);
+    expect(formatted).toContain(`[${textarea?.id}] <textarea> placeholder="Leave comments..."`);
+    expect(formatted).toContain(`[${select?.id}] <select>`);
+    expect(formatted).toContain(`[${roleButton?.id}] <div role="button"> Custom Button`);
   });
 
   it('ignores hidden elements', () => {

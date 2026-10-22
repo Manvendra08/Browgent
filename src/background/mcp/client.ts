@@ -6,6 +6,8 @@ export interface McpToolDefinition {
 }
 
 const MCP_PROTOCOL_VERSION = '2025-03-26';
+const MCP_REQUEST_TIMEOUT_MS = 30000;
+const MCP_MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 
 export class McpClient {
   private endpointUrl: string;
@@ -33,11 +35,25 @@ export class McpClient {
   }
 
   private async post(body: unknown): Promise<Response> {
-    const response = await fetch(this.endpointUrl, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(body),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), MCP_REQUEST_TIMEOUT_MS);
+
+    let response: Response;
+    try {
+      response = await fetch(this.endpointUrl, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (err: unknown) {
+      if (controller.signal.aborted) {
+        throw new Error(`MCP request to ${this.endpointUrl} timed out after ${MCP_REQUEST_TIMEOUT_MS / 1000}s`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
 
     const newSession = response.headers.get('mcp-session-id');
     if (newSession) {
@@ -85,6 +101,24 @@ export class McpClient {
     });
   }
 
+  private async readJson(response: Response): Promise<any> {
+    const declaredLength = Number(response.headers.get('content-length') || '0');
+    if (declaredLength > MCP_MAX_RESPONSE_BYTES) {
+      throw new Error(`MCP response too large (${declaredLength} bytes, limit ${MCP_MAX_RESPONSE_BYTES})`);
+    }
+
+    const text = await response.text();
+    if (text.length > MCP_MAX_RESPONSE_BYTES) {
+      throw new Error(`MCP response too large (${text.length} bytes, limit ${MCP_MAX_RESPONSE_BYTES})`);
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error('MCP response was not valid JSON');
+    }
+  }
+
   public async listTools(): Promise<McpToolDefinition[]> {
     if (!this.endpointUrl) {
       return [];
@@ -104,7 +138,7 @@ export class McpClient {
         throw new Error(`MCP list tools HTTP error: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data = await this.readJson(response);
       if (data.result && Array.isArray(data.result.tools)) {
         return data.result.tools;
       }
@@ -133,7 +167,7 @@ export class McpClient {
       throw new Error(`MCP tool call HTTP error: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await this.readJson(response);
     if (data.error) {
       throw new Error(`MCP Error: ${data.error.message || JSON.stringify(data.error)}`);
     }

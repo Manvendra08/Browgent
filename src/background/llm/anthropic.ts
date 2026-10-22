@@ -1,7 +1,7 @@
 import { LLMConfig, LLMMessage } from './types';
-import { fetchLLM } from './net';
+import { fetchLLM, redactSecrets, truncateErrorBody } from './net';
 
-export async function queryAnthropic(config: LLMConfig, messages: LLMMessage[]): Promise<string> {
+export async function queryAnthropic(config: LLMConfig, messages: LLMMessage[], signal?: AbortSignal): Promise<string> {
   const model = config.model || 'claude-3-7-sonnet-20250219';
   const apiKey = config.apiKey ? config.apiKey.trim() : '';
 
@@ -69,11 +69,11 @@ export async function queryAnthropic(config: LLMConfig, messages: LLMMessage[]):
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify(payload),
-  }, 'Anthropic');
+  }, 'Anthropic', signal);
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Anthropic API Error (${response.status}): ${errorBody}`);
+    throw new Error(`Anthropic API Error (${response.status}): ${redactSecrets(truncateErrorBody(errorBody), [config.apiKey])}`);
   }
 
   const data = await response.json();

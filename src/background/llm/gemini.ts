@@ -1,7 +1,7 @@
 import { LLMConfig, LLMMessage } from './types';
-import { fetchLLM } from './net';
+import { fetchLLM, redactSecrets, truncateErrorBody } from './net';
 
-export async function queryGemini(config: LLMConfig, messages: LLMMessage[]): Promise<string> {
+export async function queryGemini(config: LLMConfig, messages: LLMMessage[], signal?: AbortSignal): Promise<string> {
   const model = config.model || 'gemini-2.5-flash';
   const apiKey = config.apiKey ? config.apiKey.trim() : '';
 
@@ -9,7 +9,7 @@ export async function queryGemini(config: LLMConfig, messages: LLMMessage[]): Pr
     throw new Error('Gemini API key is required');
   }
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
   let systemInstruction: string | undefined;
   const contents: unknown[] = [];
@@ -59,13 +59,16 @@ export async function queryGemini(config: LLMConfig, messages: LLMMessage[]): Pr
 
   const response = await fetchLLM(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    },
     body: JSON.stringify(payload),
-  }, 'Gemini');
+  }, 'Gemini', signal);
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Gemini API Error (${response.status}): ${errorBody}`);
+    throw new Error(`Gemini API Error (${response.status}): ${redactSecrets(truncateErrorBody(errorBody), [config.apiKey])}`);
   }
 
   const data = await response.json();

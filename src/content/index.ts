@@ -1,7 +1,27 @@
-import { captureDOMState } from './extractor';
+import { captureDOMState, isKnownElement } from './extractor';
 import { drawElementBadges, clearElementBadges } from './overlay';
 
 console.log('[Browgent] Content script active.');
+
+function resolveOwnedElement(elementId: number): HTMLElement | null {
+  const candidates = document.querySelectorAll(`[data-browgent-id="${elementId}"]`);
+  for (const candidate of Array.from(candidates)) {
+    if (isKnownElement(document, candidate, elementId)) {
+      return candidate as HTMLElement;
+    }
+  }
+  return null;
+}
+
+function elementRect(el: Element): { x: number; y: number; width: number; height: number } {
+  const domRect = el.getBoundingClientRect();
+  return {
+    x: Math.round(domRect.x || domRect.left || 0),
+    y: Math.round(domRect.y || domRect.top || 0),
+    width: Math.round(domRect.width || 0),
+    height: Math.round(domRect.height || 0),
+  };
+}
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'GET_DOM_STATE') {
@@ -35,7 +55,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'CLICK_ELEMENT') {
-    const el = document.querySelector(`[data-browgent-id="${message.elementId}"]`) as HTMLElement;
+    const el = resolveOwnedElement(message.elementId);
     if (el) {
       try {
         el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
@@ -77,7 +97,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'TYPE_ELEMENT') {
-    const el = document.querySelector(`[data-browgent-id="${message.elementId}"]`) as HTMLInputElement | HTMLTextAreaElement;
+    const el = resolveOwnedElement(message.elementId) as HTMLInputElement | HTMLTextAreaElement;
     if (el) {
       try {
         el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
@@ -100,6 +120,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           height: Math.round(domRect.height || 0),
         },
       });
+    } else {
+      sendResponse({ success: false, error: `Element with id ${message.elementId} not found in DOM` });
+    }
+    return true;
+  }
+
+  if (message.type === 'GET_ELEMENT_RECT') {
+    const el = resolveOwnedElement(message.elementId);
+    if (el) {
+      sendResponse({ success: true, rect: elementRect(el) });
     } else {
       sendResponse({ success: false, error: `Element with id ${message.elementId} not found in DOM` });
     }

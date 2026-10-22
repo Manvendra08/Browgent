@@ -23,8 +23,171 @@ const INTERACTIVE_SELECTORS = [
   '[class*="answer" i]',
 ].join(', ');
 
-export function isElementVisible(el: Element): boolean {
-  // Check inline styles and parent hidden containers
+interface ElementIdState {
+  nodeIds: WeakMap<Element, number>;
+  nextId: number;
+  lastNodes: Element[];
+}
+
+const idStates = new WeakMap<Document, ElementIdState>();
+
+function getIdState(doc: Document): ElementIdState {
+  let state = idStates.get(doc);
+  if (!state) {
+    state = { nodeIds: new WeakMap<Element, number>(), nextId: 1, lastNodes: [] };
+    idStates.set(doc, state);
+  }
+  return state;
+}
+
+function resetIfPageReplaced(state: ElementIdState): void {
+  const anyStillConnected = state.lastNodes.some((node) => node.isConnected);
+  if (!anyStillConnected && state.lastNodes.length > 0) {
+    // The page content was fully replaced. Ids are NEVER reused: the counter keeps
+    // climbing so a stale id from the previous DOM can never silently resolve to a
+    // different element (it fails loudly instead).
+    state.nodeIds = new WeakMap<Element, number>();
+    state.lastNodes = [];
+  }
+}
+
+function viewportPriority(rect: ElementRect, doc: Document): number {
+  if (rect.width === 0 && rect.height === 0) {
+    return 0;
+  }
+  const view = doc.defaultView;
+  const width = view && view.innerWidth ? view.innerWidth : 1280;
+  const height = view && view.innerHeight ? view.innerHeight : 800;
+  const inViewport =
+    rect.x < width && rect.x + rect.width > 0 && rect.y < height && rect.y + rect.height > 0;
+  if (inViewport) {
+    return 0;
+  }
+  const nearViewport = rect.y > -height * 2 && rect.y < height * 3;
+  return nearViewport ? 1 : 2;
+}
+
+export function assignElementId(doc: Document, node: Element): number {
+  const state = getIdState(doc);
+  const existing = state.nodeIds.get(node);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const id = state.nextId++;
+  state.nodeIds.set(node, id);
+  return id;
+}
+
+export function isKnownElement(doc: Document, node: Element, id: number): boolean {
+  return getIdState(doc).nodeIds.get(node) === id;
+}
+
+const SENSITIVE_INPUT_TYPES = new Set(['password', 'hidden']);
+const SENSITIVE_AUTOCOMPLETE = ['password', 'one-time-code', 'otp', 'cc-', 'csc-', 'current-password', 'new-password'];
+
+const SENSITIVE_NAME_PATTERN = /(pass(word|wd)?|secret|otp|one[-_]?time|cvv|cvc|cvv2|card|cardnum|cardnumber|ccnum|ccnumber|pan|primary[-_]?account|verification[-_]?code|security[-_]?code|pin|ssn|iban|api[-_]?key)/;
+
+export function isSensitiveField(el: Element): boolean {
+  const input = el as HTMLInputElement;
+  const type = (input.type || '').toLowerCase();
+  if (SENSITIVE_INPUT_TYPES.has(type)) {
+    return true;
+  }
+  const autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
+  if (SENSITIVE_AUTOCOMPLETE.some((marker) => autocomplete.includes(marker))) {
+    return true;
+  }
+  const name = (el.getAttribute('name') || '').toLowerCase();
+  if (SENSITIVE_NAME_PATTERN.test(name)) {
+    return true;
+  }
+  const id = (el.getAttribute('id') || '').toLowerCase();
+  if (SENSITIVE_NAME_PATTERN.test(id)) {
+    return true;
+  }
+  const label = (el.getAttribute('aria-label') || '').toLowerCase();
+  if (SENSITIVE_NAME_PATTERN.test(label)) {
+    return true;
+  }
+  return false;
+}
+
+export function redactValue(el: Element, value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  if (isSensitiveField(el)) {
+    return '[REDACTED]';
+  }
+  return value;
+}
+
+const STATE_CLASS_MARKERS = [
+  'answered',
+  'selected',
+  'active',
+  'complete',
+  'completed',
+  'done',
+  'correct',
+  'visited',
+  'green',
+  'unanswered',
+  'pending',
+];
+
+function readStateClasses(node: Element): string | undefined {
+  const className = typeof node.className === 'string' ? node.className : '';
+  if (!className) {
+    return undefined;
+  }
+  const matched = className
+    .split(/\s+/)
+    .filter((cls) => STATE_CLASS_MARKERS.some((marker) => cls.toLowerCase().includes(marker)));
+  return matched.length > 0 ? matched.join(' ') : undefined;
+}
+
+export const MAX_PERCEIVED_ELEMENTS = 150;
+export const MAX_PROMPT_CHARS = 40000;
+
+const SENSITIVE_URL_PARAM = /^(token|access[_-]?token|id[_-]?token|session|sess|sid|code|auth|authorization|api[_-]?key|apikey|key|secret|password|passwd|pwd|signature|sig|otp|pin|cvv|state|nonce)$/i;
+
+function redactParams(search: string): string {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  let changed = false;
+  params.forEach((_value, key) => {
+    if (SENSITIVE_URL_PARAM.test(key)) {
+      params.set(key, 'redacted');
+      changed = true;
+    }
+  });
+  return changed ? `?${params.toString()}` : search;
+}
+
+export function scrubUrl(url: string | undefined): string | undefined {
+  if (!url) {
+    return url;
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.search) {
+      parsed.search = redactParams(parsed.search);
+    }
+    if (parsed.hash) {
+      const rawHash = parsed.hash.slice(1);
+      parsed.hash = rawHash.includes('=') ? `#${redactParams(`?${rawHash}`).slice(1)}` : parsed.hash;
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+export function sanitizeUntrustedText(text: string): string {
+  return text.replace(/<\/?page_content/gi, '[page_tag]');
+}
+
+export function isElementVisible(el: Element): boolean {  // Check inline styles and parent hidden containers
   let current: Element | null = el;
   while (current) {
     if (current instanceof HTMLElement) {
@@ -62,6 +225,8 @@ export function isElementVisible(el: Element): boolean {
 export function extractInteractiveElements(doc: Document = document): PerceivedElement[] {
   const elements: PerceivedElement[] = [];
   const rawNodes = Array.from(doc.querySelectorAll(INTERACTIVE_SELECTORS));
+  const idState = getIdState(doc);
+  resetIfPageReplaced(idState);
 
   // Filter out elements that are inside another extracted label/button with the same text to prevent duplicate badges
   const filteredNodes = rawNodes.filter((node) => {
@@ -85,16 +250,23 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
     return true;
   });
 
-  let idCounter = 1;
+  const visibleNodes = filteredNodes;
 
-  filteredNodes.forEach((node) => {
+  visibleNodes.forEach((node) => {
     const tagName = node.tagName.toUpperCase();
     let role = node.getAttribute('role') || undefined;
     let type = node.getAttribute('type') || undefined;
     const ariaLabel = node.getAttribute('aria-label') || undefined;
     const placeholder = (node as HTMLInputElement).placeholder || undefined;
-    const value = (node as HTMLInputElement).value || undefined;
-    const href = (node as HTMLAnchorElement).href || undefined;
+    const value = redactValue(node, (node as HTMLInputElement).value || undefined);
+    const href = scrubUrl((node as HTMLAnchorElement).href || undefined);
+    const checked = node instanceof HTMLInputElement && (node.type === 'radio' || node.type === 'checkbox')
+      ? node.checked
+      : undefined;
+    const ariaChecked = node.getAttribute('aria-checked') || undefined;
+    const ariaSelected = node.getAttribute('aria-selected') || undefined;
+    const ariaCurrent = node.getAttribute('aria-current') || undefined;
+    const stateClasses = readStateClasses(node);
 
     // If it's a label containing a radio or checkbox, annotate its role for the LLM
     if (tagName === 'LABEL') {
@@ -106,7 +278,7 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
     }
 
     // Clean text representation
-    let text = (node.textContent || '').trim().replace(/\s+/g, ' ');
+    let text = sanitizeUntrustedText((node.textContent || '').trim().replace(/\s+/g, ' '));
     if (text.length > 100) {
       text = text.substring(0, 100) + '...';
     }
@@ -123,22 +295,31 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
     }
 
     // Tag the DOM node with the assigned Browgent ID for easy lookup
-    node.setAttribute('data-browgent-id', idCounter.toString());
+    const elementId = assignElementId(doc, node);
+    node.setAttribute('data-browgent-id', elementId.toString());
 
     elements.push({
-      id: idCounter++,
+      id: elementId,
       tagName,
       role,
       type,
       text,
-      placeholder,
+      placeholder: placeholder ? sanitizeUntrustedText(placeholder) : undefined,
       value,
-      ariaLabel,
+      ariaLabel: ariaLabel ? sanitizeUntrustedText(ariaLabel) : undefined,
       href,
+      checked,
+      ariaChecked,
+      ariaSelected,
+      ariaCurrent,
+      stateClasses,
+      priority: viewportPriority(rect, doc),
       rect,
       domNode: node,
     });
   });
+
+  idState.lastNodes = filteredNodes;
 
   return elements;
 }
@@ -148,37 +329,84 @@ export function formatElementsForPrompt(elements: PerceivedElement[]): string {
     return 'No visible interactive elements detected on this page.';
   }
 
-  return elements
-    .map((el) => {
-      const parts: string[] = [];
-      const tagLower = el.tagName.toLowerCase();
+  const notes = elements.filter((e) => e.id === -1);
+  const candidates = elements
+    .filter((e) => e.id !== -1)
+    .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
 
-      let tagSpec = tagLower;
-      if (el.role) {
-        tagSpec += ` role="${el.role}"`;
-      }
-      if (el.type) {
-        tagSpec += ` type="${el.type}"`;
-      }
+  const lines: string[] = [];
+  let usedChars = 0;
+  let usedElements = 0;
+  let omitted = 0;
 
-      parts.push(`[${el.id}] <${tagSpec}>`);
+  for (const el of candidates) {
+    if (usedElements >= MAX_PERCEIVED_ELEMENTS) {
+      omitted++;
+      continue;
+    }
 
-      if (el.text) {
-        parts.push(` ${el.text}`);
-      }
-      if (el.placeholder) {
-        parts.push(` placeholder="${el.placeholder}"`);
-      }
-      if (el.value) {
-        parts.push(` value="${el.value}"`);
-      }
-      if (el.ariaLabel && el.ariaLabel !== el.text) {
-        parts.push(` aria-label="${el.ariaLabel}"`);
-      }
+    const parts: string[] = [];
+    const tagLower = el.tagName.toLowerCase();
 
-      return parts.join('');
-    })
-    .join('\n');
+    let tagSpec = tagLower;
+    if (el.role) {
+      tagSpec += ` role="${el.role}"`;
+    }
+    if (el.type) {
+      tagSpec += ` type="${el.type}"`;
+    }
+
+    parts.push(`[${el.id}] <${tagSpec}>`);
+
+    if (el.text) {
+      parts.push(` ${el.text}`);
+    }
+    if (el.placeholder) {
+      parts.push(` placeholder="${el.placeholder}"`);
+    }
+    if (el.value) {
+      parts.push(` value="${el.value}"`);
+    }
+    if (el.ariaLabel && el.ariaLabel !== el.text) {
+      parts.push(` aria-label="${el.ariaLabel}"`);
+    }
+    if (el.checked !== undefined) {
+      parts.push(` checked="${el.checked}"`);
+    }
+    if (el.ariaChecked) {
+      parts.push(` aria-checked="${el.ariaChecked}"`);
+    }
+    if (el.ariaSelected) {
+      parts.push(` aria-selected="${el.ariaSelected}"`);
+    }
+    if (el.ariaCurrent) {
+      parts.push(` aria-current="${el.ariaCurrent}"`);
+    }
+    if (el.stateClasses) {
+      parts.push(` state="${el.stateClasses}"`);
+    }
+
+    const line = parts.join('');
+    if (usedChars + line.length > MAX_PROMPT_CHARS) {
+      omitted += candidates.length - candidates.indexOf(el);
+      break;
+    }
+    lines.push(line);
+    usedChars += line.length;
+    usedElements++;
+  }
+
+  const trailing: string[] = [];
+  if (omitted > 0) {
+    trailing.push(
+      `[NOTE] ${omitted} further interactive elements exist on this page but are not listed here. Scroll the page so they enter the viewport, then they will be listed.`
+    );
+  }
+  for (const note of notes) {
+    trailing.push(`[NOTE] ${note.text}`);
+  }
+
+  return [...lines, ...trailing].join('\n');
 }
 
 export function captureDOMState(doc: Document = document): DOMState {
@@ -191,7 +419,7 @@ export function captureDOMState(doc: Document = document): DOMState {
   const height = typeof window !== 'undefined' ? window.innerHeight || 800 : 800;
 
   return {
-    url: doc.location ? doc.location.href : '',
+    url: scrubUrl(doc.location ? doc.location.href : '') ?? '',
     title: doc.title || '',
     elements,
     formattedPrompt,

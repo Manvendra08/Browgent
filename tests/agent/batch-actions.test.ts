@@ -11,18 +11,59 @@ import { queryLLM, queryLLMRaw } from '../../src/background/llm/client';
 const mockedQueryLLM = vi.mocked(queryLLM);
 const mockedQueryLLMRaw = vi.mocked(queryLLMRaw);
 
+const DOM_STATE = {
+  url: 'https://quiz.example.com/assessment',
+  title: 'Assessment',
+  elements: [
+    { id: 3, tagName: 'input', type: 'radio', text: 'Option A', rect: { x: 10, y: 20, width: 100, height: 20 } },
+    { id: 8, tagName: 'button', text: 'Submit', rect: { x: 10, y: 60, width: 80, height: 30 } },
+  ],
+  formattedPrompt: '[3] input radio "Option A"\n[8] button "Submit"',
+  viewport: { width: 1280, height: 800, scrollX: 0, scrollY: 0 },
+};
+
+function stubChrome() {
+  const sendMessage = vi.fn((_tabId: number, payload: Record<string, unknown>, cb: (r: unknown) => void) => {
+    if (payload.type === 'GET_DOM_STATE') {
+      cb({ success: true, data: DOM_STATE });
+      return;
+    }
+    cb({ success: true, rect: { x: 10, y: 20, width: 100, height: 20 } });
+  });
+
+  vi.stubGlobal('chrome', {
+    runtime: { lastError: undefined },
+    tabs: {
+      get: vi.fn(async () => ({ id: 1, url: DOM_STATE.url })),
+      sendMessage,
+    },
+    scripting: { executeScript: vi.fn(async () => []) },
+    debugger: {
+      attach: vi.fn(),
+      detach: vi.fn(),
+      sendCommand: vi.fn(),
+      onDetach: { addListener: vi.fn() },
+    },
+  });
+
+  return sendMessage;
+}
+
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('AgentController batch action execution', () => {
-  it('executes chained actions in a single turn without querying LLM repeatedly', async () => {
+  it('executes chained actions in a single turn and both clicks actually succeed', async () => {
+    const sendMessage = stubChrome();
+
     mockedQueryLLM.mockResolvedValueOnce({
       thought: 'Selecting answer and submitting immediately',
-      action: { action: 'click', index: 3 },
+      action: { action: 'click', elementId: 3 },
       actions: [
-        { action: 'click', index: 3 },
-        { action: 'click', index: 8 },
+        { action: 'click', elementId: 3 },
+        { action: 'click', elementId: 8 },
       ],
     }).mockResolvedValueOnce({
       thought: 'Task is complete',
@@ -44,23 +85,34 @@ describe('AgentController batch action execution', () => {
     expect(result.success).toBe(true);
     expect(result.summary).toBe('Quiz submitted and passed');
 
-    // LLM should only have been queried twice (turn 1 for batch actions, turn 2 for finish)
     expect(mockedQueryLLM).toHaveBeenCalledTimes(2);
 
-    // Verify sub-action events emitted with subIndex & total
     const actionEvents = events.filter((e) => e.type === 'action');
-    expect(actionEvents.length).toBe(3); // 2 from step 1 batch, 1 from step 2 finish
+    expect(actionEvents.length).toBe(3);
 
-    const firstSubAction = actionEvents[0].data as { action: { action: string; index: number }; subIndex: number; total: number };
+    const firstSubAction = actionEvents[0].data as { action: { action: string; elementId: number }; subIndex: number; total: number };
     expect(firstSubAction.action.action).toBe('click');
-    expect(firstSubAction.action.index).toBe(3);
+    expect(firstSubAction.action.elementId).toBe(3);
     expect(firstSubAction.subIndex).toBe(0);
     expect(firstSubAction.total).toBe(2);
 
-    const secondSubAction = actionEvents[1].data as { action: { action: string; index: number }; subIndex: number; total: number };
+    const secondSubAction = actionEvents[1].data as { action: { action: string; elementId: number }; subIndex: number; total: number };
     expect(secondSubAction.action.action).toBe('click');
-    expect(secondSubAction.action.index).toBe(8);
+    expect(secondSubAction.action.elementId).toBe(8);
     expect(secondSubAction.subIndex).toBe(1);
     expect(secondSubAction.total).toBe(2);
+
+    const resultEvents = events.filter((e) => e.type === 'action_result');
+    expect(resultEvents.length).toBe(2);
+    for (const event of resultEvents) {
+      expect((event.data as { success: boolean }).success).toBe(true);
+    }
+
+    const clickMessages = sendMessage.mock.calls.filter(
+      ([, payload]) => (payload as { type: string }).type === 'CLICK_ELEMENT'
+    );
+    expect(clickMessages.length).toBe(2);
+    expect((clickMessages[0][1] as { elementId: number }).elementId).toBe(3);
+    expect((clickMessages[1][1] as { elementId: number }).elementId).toBe(8);
   });
 });

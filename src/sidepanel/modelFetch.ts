@@ -53,8 +53,8 @@ export async function fetchAvailableModels(config: LLMConfig): Promise<ModelFetc
       case 'gemini': {
         if (!apiKey) throw new Error('Gemini API key is required to list models');
         const res = await fetchLLM(
-          `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=100`,
-          {},
+          `https://generativelanguage.googleapis.com/v1beta/models?pageSize=100`,
+          { headers: { 'x-goog-api-key': apiKey } },
           'Gemini'
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

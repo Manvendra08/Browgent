@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseModelResponse, resolveOmniRouteModel } from '../../src/background/llm/client';
+import { parseModelResponse } from '../../src/background/llm/client';
 
 describe('LLM Response Parser', () => {
   it('extracts thought and action from markdown JSON block', () => {
@@ -32,8 +32,7 @@ describe('LLM Response Parser', () => {
     });
   });
 
-  it('extracts batch of multiple actions from actions array', () => {
-    const output = `
+  it('extracts batch of multiple actions from actions array', () => {    const output = `
 \`\`\`json
 {
   "thought": "I will select the radio option then click submit.",
@@ -51,5 +50,31 @@ describe('LLM Response Parser', () => {
     expect(decision.actions?.[0]).toEqual({ action: 'click', elementId: 3 });
     expect(decision.actions?.[1]).toEqual({ action: 'wait', seconds: 0.5 });
     expect(decision.actions?.[2]).toEqual({ action: 'click', elementId: 5 });
+  });
+
+  it('accepts the "index" alias for elementId so a prompt-shaped response never breaks the run', () => {
+    const output = `
+\`\`\`json
+{
+  "thought": "Batching the radio click and submit.",
+  "actions": [
+    { "action": "click", "index": 4 },
+    { "action": "click", "index": 12 }
+  ]
+}
+\`\`\``;
+    const decision = parseModelResponse(output);
+    expect(decision.actions?.[0]).toEqual({ action: 'click', elementId: 4 });
+    expect(decision.actions?.[1]).toEqual({ action: 'click', elementId: 12 });
+  });
+
+  it('throws a named ActionParseError for an unusable action payload', () => {
+    const output = '```json\n{ "thought": "click something", "action": { "action": "click" } }\n```';
+    expect(() => parseModelResponse(output)).toThrowError(/elementId/);
+    try {
+      parseModelResponse(output);
+    } catch (err) {
+      expect((err as Error).name).toBe('ActionParseError');
+    }
   });
 });

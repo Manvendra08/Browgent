@@ -7,7 +7,26 @@ import { queryAnthropic } from './anthropic';
 
 export { resolveOmniRouteModel };
 
+export class ActionParseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ActionParseError';
+  }
+}
+
 export function parseModelResponse(rawContent: string): AgentDecision {
+  try {
+    return parseModelResponseUnsafe(rawContent);
+  } catch (err: unknown) {
+    if (err instanceof ActionParseError) {
+      throw err;
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new ActionParseError(msg);
+  }
+}
+
+function parseModelResponseUnsafe(rawContent: string): AgentDecision {
   const trimmed = rawContent.trim();
   let thought = '';
   let actionJson = '';
@@ -79,27 +98,35 @@ export function parseModelResponse(rawContent: string): AgentDecision {
   };
 }
 
-export async function queryLLMRaw(config: LLMConfig, messages: LLMMessage[]): Promise<string> {
+export async function queryLLMRaw(
+  config: LLMConfig,
+  messages: LLMMessage[],
+  signal?: AbortSignal
+): Promise<string> {
   switch (config.provider) {
     case 'omniroute':
-      return queryOmniRoute(config, messages);
+      return queryOmniRoute(config, messages, signal);
 
     case 'openai':
     case 'openai-compat':
-      return queryOpenAI(config, messages);
+      return queryOpenAI(config, messages, signal);
 
     case 'gemini':
-      return queryGemini(config, messages);
+      return queryGemini(config, messages, signal);
 
     case 'anthropic':
-      return queryAnthropic(config, messages);
+      return queryAnthropic(config, messages, signal);
 
     default:
       throw new Error(`Unsupported LLM provider: "${config.provider}"`);
   }
 }
 
-export async function queryLLM(config: LLMConfig, messages: LLMMessage[]): Promise<AgentDecision> {
-  const responseText = await queryLLMRaw(config, messages);
+export async function queryLLM(
+  config: LLMConfig,
+  messages: LLMMessage[],
+  signal?: AbortSignal
+): Promise<AgentDecision> {
+  const responseText = await queryLLMRaw(config, messages, signal);
   return parseModelResponse(responseText);
 }

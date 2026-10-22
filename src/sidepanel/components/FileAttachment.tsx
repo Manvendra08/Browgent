@@ -2,11 +2,15 @@ import React, { useRef } from 'react';
 import { Paperclip, X, FileText, Image as ImageIcon } from 'lucide-react';
 import { AttachedFile } from '../../background/files/parser';
 
+export const MAX_IMAGE_ATTACHMENT_BYTES = 2 * 1024 * 1024;
+export const MAX_TEXT_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
 interface FileAttachmentProps {
   files: AttachedFile[];
   onAddFiles: (newFiles: AttachedFile[]) => void;
   onRemoveFile: (index: number) => void;
   disabled?: boolean;
+  onError?: (message: string) => void;
 }
 
 export const FileAttachment: React.FC<FileAttachmentProps> = ({
@@ -14,6 +18,7 @@ export const FileAttachment: React.FC<FileAttachmentProps> = ({
   onAddFiles,
   onRemoveFile,
   disabled,
+  onError,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -23,6 +28,15 @@ export const FileAttachment: React.FC<FileAttachmentProps> = ({
 
     selectedFiles.forEach((file) => {
       const isImg = file.type.startsWith('image/');
+      const limit = isImg ? MAX_IMAGE_ATTACHMENT_BYTES : MAX_TEXT_ATTACHMENT_BYTES;
+
+      if (file.size > limit) {
+        onError?.(
+          `"${file.name}" is ${(file.size / (1024 * 1024)).toFixed(1)} MB — the limit is ${(limit / (1024 * 1024)).toFixed(0)} MB for ${isImg ? 'images' : 'text files'}.`
+        );
+        return;
+      }
+
       const reader = new FileReader();
 
       reader.onload = (event) => {

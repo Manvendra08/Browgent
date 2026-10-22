@@ -402,6 +402,7 @@ export const App: React.FC = () => {
           files={files}
           onAddFiles={(newFiles) => setFiles((prev) => [...prev, ...newFiles])}
           onRemoveFile={(idx) => setFiles((prev) => prev.filter((_, i) => i !== idx))}
+          onError={setErrorMessage}
           disabled={status === 'running'}
         />
       </div>

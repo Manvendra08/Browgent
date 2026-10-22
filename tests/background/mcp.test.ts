@@ -38,7 +38,7 @@ describe('AgentController MCP dispatch', () => {
     mockedQueryLLM
       .mockResolvedValueOnce({
         thought: 'Checking the weather via MCP tool',
-        action: { action: 'mcp_call', tool: 'weather.lookup', args: { city: 'Tokyo' } },
+        action: { action: 'mcp_call', tool: 'mcp__weather.lookup', args: { city: 'Tokyo' } },
       })
       .mockResolvedValueOnce({
         thought: 'Done',
@@ -112,5 +112,83 @@ describe('McpClient handshake', () => {
 
     const toolCallHeaders = (fetchMock.mock.calls[3][1] as RequestInit).headers as Record<string, string>;
     expect(toolCallHeaders['Mcp-Session-Id']).toBe('sess-123');
+  });
+});
+
+describe('McpClient error paths', () => {
+  function mockMcpServer(handler: (method: string) => Response): void {
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as { method: string };
+      return Promise.resolve(handler(body.method));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+  }
+
+  const okJson = (): Response =>
+    new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }), { status: 200 });
+
+  it('rejects a tool call when the initialize handshake returns HTTP 500', async () => {
+    mockMcpServer((method) =>
+      method === 'initialize' ? new Response('{}', { status: 500 }) : okJson()
+    );
+
+    const client = new McpClient('http://localhost:3000/mcp');
+
+    await expect(client.callTool('ping', {})).rejects.toThrow(/500/);
+    await expect(client.callTool('ping', {})).rejects.toThrow(/initialize/i);
+  });
+
+  it('rejects with a controlled message when the response body is not valid JSON', async () => {
+    mockMcpServer((method) =>
+      method === 'tools/call' ? new Response('this is definitely not json', { status: 200 }) : okJson()
+    );
+
+    const client = new McpClient('http://localhost:3000/mcp');
+
+    let caught: unknown = null;
+    try {
+      await client.callTool('ping', {});
+    } catch (err: unknown) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe('MCP response was not valid JSON');
+    // The raw JSON.parse failure must never leak to the caller.
+    expect((caught as Error).message).not.toMatch(/Unexpected token|JSON\.parse/i);
+  });
+
+  it('rejects with the server error message when tools/call returns an error object', async () => {
+    mockMcpServer((method) =>
+      method === 'tools/call'
+        ? new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { message: 'boom' } }), {
+            status: 200,
+          })
+        : okJson()
+    );
+
+    const client = new McpClient('http://localhost:3000/mcp');
+
+    await expect(client.callTool('ping', {})).rejects.toThrow(/boom/);
+  });
+
+  it('returns an empty tool list when the server errors', async () => {
+    mockMcpServer((method) =>
+      method === 'initialize' ? new Response('{}', { status: 500 }) : okJson()
+    );
+
+    const client = new McpClient('http://localhost:3000/mcp');
+
+    await expect(client.listTools()).resolves.toEqual([]);
+  });
+
+  it('returns an empty tool list when the tools/list body is not valid JSON', async () => {
+    mockMcpServer((method) =>
+      method === 'tools/list' ? new Response('<html>gateway error</html>', { status: 200 }) : okJson()
+    );
+
+    const client = new McpClient('http://localhost:3000/mcp');
+
+    await expect(client.listTools()).resolves.toEqual([]);
   });
 });

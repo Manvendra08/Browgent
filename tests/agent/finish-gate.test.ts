@@ -68,7 +68,7 @@ describe('AgentController finish verification gate', () => {
     expect(rejectionLogs).toHaveLength(2);
   });
 
-  it('accepts an unverified finish with a warning once the rejection budget is exhausted', async () => {
+  it('reports failure instead of success when completion can never be verified', async () => {
     mockedQueryLLM.mockResolvedValue({
       thought: 'Declaring done',
       action: { action: 'finish', summary: 'Quiz done' },
@@ -83,9 +83,31 @@ describe('AgentController finish verification gate', () => {
 
     const result = await controller.run(1, 'complete the course', () => {});
 
-    expect(result.success).toBe(true);
-    expect(result.summary).toContain('accepted without verified on-page confirmation');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Completion could not be verified');
+    expect(result.summary).toBeUndefined();
     expect(mockedQueryLLM).toHaveBeenCalledTimes(3);
     expect(mockedQueryLLMRaw).toHaveBeenCalledTimes(3);
+  });
+
+  it('still refuses a finish at the last step of the budget instead of accepting it unverified', async () => {
+    mockedQueryLLM.mockResolvedValue({
+      thought: 'Declaring done on the final step',
+      action: { action: 'finish', summary: 'Quiz done' },
+    });
+    mockedQueryLLMRaw.mockResolvedValue(
+      '```json\n{"confirmed": false, "evidence": "questions 3 and 5 are still unanswered"}\n```'
+    );
+
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 1,
+    });
+
+    const result = await controller.run(1, 'complete the course', () => {});
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Completion could not be verified');
+    expect(result.error).toContain('still unanswered');
   });
 });

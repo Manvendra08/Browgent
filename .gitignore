@@ -1,5 +1,8 @@
 node_modules
 dist
+coverage
+*.zip
+.eslintcache
 .DS_Store
 *.local
 npm-debug.log*

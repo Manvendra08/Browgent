@@ -1,5 +1,5 @@
 import { LLMConfig, LLMMessage } from './types';
-import { fetchLLM } from './net';
+import { fetchLLM, redactSecrets, truncateErrorBody } from './net';
 
 export const OMNIROUTE_DEFAULT_BASE_URL = 'http://localhost:20128/v1/chat/completions';
 
@@ -20,7 +20,7 @@ export function resolveOmniRouteModel(aliasOrModel?: string): string {
   return OMNIROUTE_ALIASES[clean] || aliasOrModel;
 }
 
-export async function queryOmniRoute(config: LLMConfig, messages: LLMMessage[]): Promise<string> {
+export async function queryOmniRoute(config: LLMConfig, messages: LLMMessage[], signal?: AbortSignal): Promise<string> {
   const endpoint = config.baseUrl && config.baseUrl.trim() !== '' ? config.baseUrl : OMNIROUTE_DEFAULT_BASE_URL;
   const resolvedModel = resolveOmniRouteModel(config.model);
 
@@ -57,11 +57,11 @@ export async function queryOmniRoute(config: LLMConfig, messages: LLMMessage[]):
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
-  }, 'OmniRoute');
+  }, 'OmniRoute', signal);
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`OmniRoute API Error (${response.status}): ${errorBody}`);
+    throw new Error(`OmniRoute API Error (${response.status}): ${redactSecrets(truncateErrorBody(errorBody), [config.apiKey])}`);
   }
 
   const data = await response.json();

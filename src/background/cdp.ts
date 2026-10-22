@@ -26,7 +26,7 @@ export async function attachDebugger(tabId: number): Promise<void> {
     console.log(`[Browgent CDP] Debugger attached to tab ${tabId}`);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('Already attached')) {
+    if (/already attached/i.test(msg)) {
       attachedTabs.add(tabId);
     } else {
       throw new Error(`Failed to attach debugger to tab ${tabId}: ${msg}`);

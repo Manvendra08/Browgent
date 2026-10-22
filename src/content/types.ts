@@ -15,6 +15,12 @@ export interface PerceivedElement {
   value?: string;
   ariaLabel?: string;
   href?: string;
+  checked?: boolean;
+  ariaChecked?: string;
+  ariaSelected?: string;
+  ariaCurrent?: string;
+  stateClasses?: string;
+  priority?: number;
   rect: ElementRect;
   domNode?: Element;
 }

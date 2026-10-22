@@ -1,12 +1,23 @@
 import { AgentAction, ClickAction, TypeAction, ScrollAction, NavigateAction, FinishAction, FailAction, WaitAction, McpCallAction } from './types';
 import { PerceivedElement } from '../content/types';
 import { attachDebugger, dispatchClick, dispatchType, dispatchScroll, navigateToUrl } from './cdp';
+import { isRestrictedUrl } from './restricted';
+
+export const MAX_WAIT_SECONDS = 10;
 
 export interface ElementRectPayload {
   x: number;
   y: number;
   width: number;
   height: number;
+}
+
+function resolveElementId(obj: Record<string, unknown>, actionName: string): number {
+  const candidate = typeof obj.elementId === 'number' ? obj.elementId : obj.index;
+  if (typeof candidate !== 'number' || !Number.isFinite(candidate)) {
+    throw new Error(`${actionName} action requires numeric "elementId"`);
+  }
+  return candidate;
 }
 
 export function parseAgentAction(raw: string): AgentAction {
@@ -38,25 +49,20 @@ export function parseAgentAction(raw: string): AgentAction {
 
   switch (action) {
     case 'click': {
-      if (typeof obj.elementId !== 'number') {
-        throw new Error('Click action requires numeric "elementId"');
-      }
       return {
         action: 'click',
-        elementId: obj.elementId,
+        elementId: resolveElementId(obj, 'Click'),
       } as ClickAction;
     }
 
     case 'type': {
-      if (typeof obj.elementId !== 'number') {
-        throw new Error('Type action requires numeric "elementId"');
-      }
+      const elementId = resolveElementId(obj, 'Type');
       if (typeof obj.text !== 'string') {
         throw new Error('Type action requires string "text"');
       }
       return {
         action: 'type',
-        elementId: obj.elementId,
+        elementId,
         text: obj.text,
         pressEnter: Boolean(obj.pressEnter),
       } as TypeAction;
@@ -73,17 +79,24 @@ export function parseAgentAction(raw: string): AgentAction {
     }
 
     case 'navigate': {
-      if (typeof obj.url !== 'string' || !obj.url.startsWith('http')) {
+      const url = typeof obj.url === 'string' ? obj.url.trim() : '';
+      if (isRestrictedUrl(url)) {
+        throw new Error(
+          `Navigate action blocked: "${url}" targets an internal, local-file or metadata address that the agent must not open`
+        );
+      }
+      if (!/^https?:\/\//i.test(url)) {
         throw new Error('Navigate action requires a valid HTTP/HTTPS "url"');
       }
       return {
         action: 'navigate',
-        url: obj.url,
+        url,
       } as NavigateAction;
     }
 
     case 'wait': {
-      const seconds = typeof obj.seconds === 'number' ? obj.seconds : 2;
+      const rawSeconds = typeof obj.seconds === 'number' ? obj.seconds : 2;
+      const seconds = Math.min(Math.max(rawSeconds, 0), MAX_WAIT_SECONDS);
       return {
         action: 'wait',
         seconds,
@@ -164,6 +177,11 @@ function elementCenter(rect: ElementRectPayload): { x: number; y: number } {
   };
 }
 
+async function getFreshElementRect(tabId: number, elementId: number): Promise<ElementRectPayload | null> {
+  const result = await sendDomAction(tabId, { type: 'GET_ELEMENT_RECT', elementId });
+  return result.success && result.rect ? result.rect : null;
+}
+
 export async function executeAgentAction(
   tabId: number,
   action: AgentAction,
@@ -187,8 +205,15 @@ export async function executeAgentAction(
         }
 
         // 2. Fallback: single CDP hardware click (never both — avoids double events)
+        const freshRect = await getFreshElementRect(tabId, action.elementId);
+        if (!freshRect) {
+          return {
+            success: false,
+            error: `Element with id [${action.elementId}] is no longer clickable (stale element, refusing to click stale coordinates)`,
+          };
+        }
         await attachDebugger(tabId);
-        const center = elementCenter(domResult.rect || target.rect);
+        const center = elementCenter(freshRect);
         await dispatchClick(tabId, center.x, center.y);
 
         return { success: true };
@@ -211,8 +236,15 @@ export async function executeAgentAction(
         }
 
         // 2. Fallback: CDP focus click + hardware typing
+        const freshRect = await getFreshElementRect(tabId, action.elementId);
+        if (!freshRect) {
+          return {
+            success: false,
+            error: `Element with id [${action.elementId}] is no longer typeable (stale element, refusing to act on stale coordinates)`,
+          };
+        }
         await attachDebugger(tabId);
-        const center = elementCenter(domResult.rect || target.rect);
+        const center = elementCenter(freshRect);
         await dispatchClick(tabId, center.x, center.y);
         await new Promise((r) => setTimeout(r, 100));
         await dispatchType(tabId, action.text, action.pressEnter);
@@ -227,12 +259,18 @@ export async function executeAgentAction(
       }
 
       case 'navigate': {
+        if (isRestrictedUrl(action.url)) {
+          return {
+            success: false,
+            error: `Navigation blocked: "${action.url}" targets an internal, local-file or metadata address`,
+          };
+        }
         await navigateToUrl(tabId, action.url);
         return { success: true };
       }
 
       case 'wait': {
-        const ms = (action.seconds || 2) * 1000;
+        const ms = (action.seconds ?? 2) * 1000;
         await new Promise((r) => setTimeout(r, ms));
         return { success: true };
       }

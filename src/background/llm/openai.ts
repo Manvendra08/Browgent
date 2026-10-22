@@ -1,7 +1,7 @@
 import { LLMConfig, LLMMessage } from './types';
-import { fetchLLM } from './net';
+import { fetchLLM, redactSecrets, truncateErrorBody } from './net';
 
-export async function queryOpenAI(config: LLMConfig, messages: LLMMessage[]): Promise<string> {
+export async function queryOpenAI(config: LLMConfig, messages: LLMMessage[], signal?: AbortSignal): Promise<string> {
   const endpoint = config.baseUrl && config.baseUrl.trim() !== ''
     ? config.baseUrl
     : 'https://api.openai.com/v1/chat/completions';
@@ -39,11 +39,11 @@ export async function queryOpenAI(config: LLMConfig, messages: LLMMessage[]): Pr
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
-  }, 'OpenAI-compatible endpoint');
+  }, 'OpenAI-compatible endpoint', signal);
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`OpenAI API Error (${response.status}): ${errorBody}`);
+    throw new Error(`OpenAI API Error (${response.status}): ${redactSecrets(truncateErrorBody(errorBody), [config.apiKey])}`);
   }
 
   const data = await response.json();
