@@ -100,7 +100,7 @@ describe('fetchAvailableModels', () => {
           { name: 'models/text-embedding-004', supportedGenerationMethods: ['embedContent'] },
           { name: 'models/gemini-1.5-pro' },
         ],
-      })
+      }),
     );
 
     const result = await fetchAvailableModels({
@@ -149,10 +149,46 @@ describe('fetchAvailableModels', () => {
     expect(gemini.models).toEqual([]);
     expect(gemini.error).toMatch(/api key is required/i);
 
-    const anthropic = await fetchAvailableModels({ provider: 'anthropic', model: 'claude-sonnet-4' });
+    const anthropic = await fetchAvailableModels({
+      provider: 'anthropic',
+      model: 'claude-sonnet-4',
+    });
     expect(anthropic.models).toEqual([]);
     expect(anthropic.error).toMatch(/api key is required/i);
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('tests connection and reports success with latency', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ data: [{ id: 'model-1' }, { id: 'model-2' }] }));
+    const { testConnection } = await import('../../src/sidepanel/modelFetch');
+
+    const result = await testConnection({
+      provider: 'omniroute',
+      model: 'free',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('Connected');
+    expect(result.message).toContain('2 models found');
+  });
+
+  it('tests connection and reports failure message on error', async () => {
+    const { testConnection } = await import('../../src/sidepanel/modelFetch');
+
+    const result = await testConnection({
+      provider: 'openai',
+      model: 'gpt-4o',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('API Key is required');
+  });
+
+  it('validates empty endpoint for testMcpEndpoint', async () => {
+    const { testMcpEndpoint } = await import('../../src/sidepanel/modelFetch');
+    const result = await testMcpEndpoint('   ');
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('URL is required');
   });
 });

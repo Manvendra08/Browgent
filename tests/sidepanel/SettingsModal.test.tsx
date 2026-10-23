@@ -6,6 +6,20 @@ import type { ProviderConfigMap } from '../../src/sidepanel/providerConfigs';
 
 vi.mock('../../src/sidepanel/modelFetch', () => ({
   fetchAvailableModels: vi.fn().mockResolvedValue({ models: [] }),
+  testConnection: vi
+    .fn()
+    .mockResolvedValue({
+      success: true,
+      latencyMs: 85,
+      message: 'Connected (85ms) • 5 models found',
+    }),
+  testMcpEndpoint: vi
+    .fn()
+    .mockResolvedValue({
+      success: true,
+      latencyMs: 40,
+      message: 'Connected (40ms) • 3 tools available',
+    }),
 }));
 
 const baseProps = {
@@ -22,7 +36,11 @@ function renderModal(overrides: Partial<React.ComponentProps<typeof SettingsModa
   const onSaveConfig = vi.fn();
   const props = {
     ...baseProps,
-    config: { provider: 'omniroute', baseUrl: 'http://localhost:20128/v1/chat/completions', model: 'anti' } as LLMConfig,
+    config: {
+      provider: 'omniroute',
+      baseUrl: 'http://localhost:20128/v1/chat/completions',
+      model: 'anti',
+    } as LLMConfig,
     providerConfigs: {} as ProviderConfigMap,
     onSaveConfig,
     ...overrides,
@@ -32,7 +50,8 @@ function renderModal(overrides: Partial<React.ComponentProps<typeof SettingsModa
 }
 
 const keyInput = () => screen.getByPlaceholderText('sk-...') as HTMLInputElement;
-const modelInput = () => screen.getByPlaceholderText(/pick a model|gpt-4o-mini|Claude\/Antigravity/) as HTMLInputElement;
+const modelInput = () =>
+  screen.getByPlaceholderText(/pick a model|gpt-4o-mini|Claude\/Antigravity/) as HTMLInputElement;
 
 /** Providers with saved settings carry a "(saved settings)" suffix in their label. */
 const providerButton = (label: string) =>
@@ -117,5 +136,61 @@ describe('SettingsModal per-provider memory', () => {
 
     const [, map] = onSaveConfig.mock.calls[0] as [LLMConfig, ProviderConfigMap];
     expect(map.openai?.apiKey).toBe('sk-existing');
+  });
+});
+
+describe('SettingsModal tab navigation and connection testing', () => {
+  it('switches between tabs cleanly', () => {
+    renderModal();
+
+    // Default tab is Models
+    expect(screen.getByRole('button', { name: /^OmniRoute/ })).toBeDefined();
+
+    // Switch to Agent tab
+    fireEvent.click(screen.getByRole('button', { name: /Agent/ }));
+    expect(screen.getByText(/Max Step Safety Budget/)).toBeDefined();
+
+    // Switch to MCP tab
+    fireEvent.click(screen.getByRole('button', { name: /^MCP/ }));
+    expect(screen.getByPlaceholderText('http://localhost:3000/mcp')).toBeDefined();
+
+    // Switch to Skills tab
+    fireEvent.click(screen.getByRole('button', { name: /Skills/ }));
+    expect(screen.getByPlaceholderText(/name: my-custom-skill/)).toBeDefined();
+  });
+
+  it('toggles password visibility with the eye button', () => {
+    renderModal({
+      config: { provider: 'openai', apiKey: 'sk-secret-key', model: 'gpt-4o' } as LLMConfig,
+    });
+
+    const input = keyInput();
+    expect(input.type).toBe('password');
+
+    const toggleBtn = screen.getByRole('button', { name: /Show API key/ });
+    fireEvent.click(toggleBtn);
+    expect(input.type).toBe('text');
+
+    fireEvent.click(screen.getByRole('button', { name: /Hide API key/ }));
+    expect(input.type).toBe('password');
+  });
+
+  it('triggers test connection and displays feedback', async () => {
+    renderModal();
+
+    const testBtn = screen.getByRole('button', { name: /Test connection to this provider/ });
+    fireEvent.click(testBtn);
+
+    expect(await screen.findByText(/Connected \(85ms\) • 5 models found/)).toBeDefined();
+  });
+
+  it('triggers MCP ping on the MCP tab', async () => {
+    renderModal({ mcpEndpoint: 'http://localhost:3000/mcp' });
+
+    fireEvent.click(screen.getByRole('button', { name: /^MCP/ }));
+    const pingBtn = screen.getByRole('button', { name: /Ping MCP/ });
+    fireEvent.click(pingBtn);
+
+    expect(await screen.findByText(/Connected \(40ms\) • 3 tools available/)).toBeDefined();
   });
 });
