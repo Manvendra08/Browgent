@@ -61,7 +61,7 @@ export async function queryOmniRoute(config: LLMConfig, messages: LLMMessage[], 
     model: resolvedModel,
     messages: formattedMessages,
     temperature: config.temperature ?? 0.2,
-    max_tokens: config.maxTokens ?? 1024,
+    max_tokens: config.maxTokens ?? 4096,
     tool_choice: 'none',
   };
 

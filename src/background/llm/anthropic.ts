@@ -52,7 +52,7 @@ export async function queryAnthropic(config: LLMConfig, messages: LLMMessage[], 
   const payload: Record<string, unknown> = {
     model,
     messages: formattedMessages,
-    max_tokens: config.maxTokens ?? 1024,
+    max_tokens: config.maxTokens ?? 4096,
     temperature: config.temperature ?? 0.2,
   };
 

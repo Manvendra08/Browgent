@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { AgentController } from '../../src/background/agent';
+import { AgentController, parseCompletionVerdict } from '../../src/background/agent';
 
 vi.mock('../../src/background/llm/client', () => ({
   queryLLM: vi.fn(),
@@ -199,5 +199,44 @@ describe('AgentController question-goal verification', () => {
     expect(auditPrompt).toContain('Identify legal and regulatory risks');
 
     vi.unstubAllGlobals();
+  });
+});
+
+describe('parseCompletionVerdict resilient parser', () => {
+  it('parses truncated auditor output where confirmed is true', () => {
+    const raw =
+      '{"confirmed": true, "evidence": "The proposed answer\'s five bullets are all directly supported by the visible screenshot and page content: (1) Earnings Calendar';
+    const verdict = parseCompletionVerdict(raw);
+    expect(verdict.confirmed).toBe(true);
+    expect(verdict.evidence).toContain("The proposed answer's five bullets are all directly supported");
+  });
+
+  it('parses truncated auditor output with unescaped internal quotes', () => {
+    const raw =
+      '{"confirmed": true, "evidence": "The proposed answer accurately reflects the visible page content. The Earnings Calendar shows Kotak Mahindra Bank (Oct 20, 4:00';
+    const verdict = parseCompletionVerdict(raw);
+    expect(verdict.confirmed).toBe(true);
+    expect(verdict.evidence).toContain('The proposed answer accurately reflects the visible page content');
+  });
+
+  it('parses truncated auditor output where confirmed is false', () => {
+    const raw = '{"confirmed": false, "evidence": "Page still loading';
+    const verdict = parseCompletionVerdict(raw);
+    expect(verdict.confirmed).toBe(false);
+    expect(verdict.evidence).toContain('Page still loading');
+  });
+
+  it('handles standard fenced JSON', () => {
+    const raw = '```json\n{"confirmed": true, "evidence": "Everything looks good"}\n```';
+    const verdict = parseCompletionVerdict(raw);
+    expect(verdict.confirmed).toBe(true);
+    expect(verdict.evidence).toBe('Everything looks good');
+  });
+
+  it('returns fail-closed false when output is completely unparsable gibberish', () => {
+    const raw = 'Just random text without confirmed field';
+    const verdict = parseCompletionVerdict(raw);
+    expect(verdict.confirmed).toBe(false);
+    expect(verdict.evidence).toContain('Auditor response was not a parsable verdict object');
   });
 });

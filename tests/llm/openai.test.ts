@@ -87,7 +87,7 @@ describe('OpenAI-compatible provider', () => {
     const payload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(payload.model).toBe('gpt-4o');
     expect(payload.temperature).toBe(0.2);
-    expect(payload.max_tokens).toBe(1024);
+    expect(payload.max_tokens).toBe(4096);
   });
 
   it('honours explicit temperature and maxTokens', async () => {

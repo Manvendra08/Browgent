@@ -47,7 +47,7 @@ export async function queryGemini(config: LLMConfig, messages: LLMMessage[], sig
     contents,
     generationConfig: {
       temperature: config.temperature ?? 0.2,
-      maxOutputTokens: config.maxTokens ?? 1024,
+      maxOutputTokens: config.maxTokens ?? 4096,
     },
   };
 
