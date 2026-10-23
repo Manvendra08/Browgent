@@ -94,13 +94,16 @@ chrome.runtime.onConnect.addListener((port) => {
         if (!tabs || tabs.length === 0) {
           tabs = await chrome.tabs.query({ active: true, currentWindow: true });
         }
-        let activeTab = tabs[0];
-        if (!activeTab || !activeTab.id) {
+        const activeTab = tabs[0];
+        if (!activeTab || typeof activeTab.id !== 'number') {
           port.postMessage({ type: 'ERROR', error: 'No active tab found to operate on.' });
           return;
         }
+        const tabId = activeTab.id;
 
         let currentUrl = activeTab.url || '';
+        let tabTitle = activeTab.title;
+        let tabFavIconUrl = activeTab.favIconUrl;
         const onNewTab = isNewTabPage(currentUrl);
         const explicitTarget = extractTargetUrlFromGoal(goal);
 
@@ -116,13 +119,18 @@ chrome.runtime.onConnect.addListener((port) => {
             return;
           }
 
-          if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.update === 'function') {
+          if (
+            typeof chrome !== 'undefined' &&
+            chrome.tabs &&
+            typeof chrome.tabs.update === 'function'
+          ) {
             try {
-              await chrome.tabs.update(activeTab.id, { url: destinationUrl });
-              const loadedTab = await waitForTabLoaded(activeTab.id);
+              await chrome.tabs.update(tabId, { url: destinationUrl });
+              const loadedTab = await waitForTabLoaded(tabId);
               if (loadedTab) {
-                activeTab = loadedTab;
-                currentUrl = activeTab.url || destinationUrl;
+                currentUrl = loadedTab.url || destinationUrl;
+                tabTitle = loadedTab.title;
+                tabFavIconUrl = loadedTab.favIconUrl;
               } else {
                 currentUrl = destinationUrl;
               }
@@ -152,15 +160,15 @@ chrome.runtime.onConnect.addListener((port) => {
           type: 'STATUS_UPDATE',
           status: 'running',
           tab: {
-            id: activeTab.id,
-            title: activeTab.title,
-            url: activeTab.url,
-            favIconUrl: activeTab.favIconUrl,
+            id: tabId,
+            title: tabTitle,
+            url: currentUrl,
+            favIconUrl: tabFavIconUrl,
           },
         });
 
         try {
-          const result = await activeAgent.run(activeTab.id, goal, (event) => {
+          const result = await activeAgent.run(tabId, goal, (event) => {
             if (sidepanelPort) {
               sidepanelPort.postMessage({ type: 'AGENT_EVENT', event });
             }
