@@ -79,14 +79,16 @@ chrome.runtime.onConnect.addListener((port) => {
 
     port.onMessage.addListener(async (msg) => {
       if (msg.type === 'START_AGENT') {
-        const { goal, llmConfig, maxSteps, skills, files, mcpEndpoint } = msg.payload as {
-          goal: string;
-          llmConfig: LLMConfig;
-          maxSteps?: number;
-          skills?: Skill[];
-          files?: AttachedFile[];
-          mcpEndpoint?: string;
-        };
+        const { goal, llmConfig, maxSteps, skills, files, mcpEndpoint, showOverlay } =
+          msg.payload as {
+            goal: string;
+            llmConfig: LLMConfig;
+            maxSteps?: number;
+            skills?: Skill[];
+            files?: AttachedFile[];
+            mcpEndpoint?: string;
+            showOverlay?: boolean;
+          };
 
         // Find the active tab: prefer the last focused window (the one the
         // side panel is attached to), fall back to the current window.
@@ -154,6 +156,7 @@ chrome.runtime.onConnect.addListener((port) => {
           skills: skills || [],
           files: files || [],
           mcpEndpoint,
+          showOverlay: showOverlay ?? false,
         });
 
         port.postMessage({

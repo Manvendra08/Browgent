@@ -221,4 +221,25 @@ describe('SettingsModal tab navigation and connection testing', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save Settings/ }));
     expect(onSaveConfig).toHaveBeenCalled();
   });
+
+  it('toggles element overlay badges in the Agent tab and saves value', () => {
+    const onSaveShowOverlay = vi.fn();
+    renderModal({ showOverlay: false, onSaveShowOverlay });
+
+    // Switch to Agent tab
+    fireEvent.click(screen.getByRole('button', { name: /^Agent$/ }));
+
+    const toggle = screen.getByRole('switch', { name: /Show Element Overlay Badges/i });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByText(/Clean Background Mode \(Default\):/)).toBeDefined();
+
+    // Toggle on
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByText(/Visual Grounding Mode:/)).toBeDefined();
+
+    // Save
+    fireEvent.click(screen.getByRole('button', { name: /Save Settings/ }));
+    expect(onSaveShowOverlay).toHaveBeenCalledWith(true);
+  });
 });

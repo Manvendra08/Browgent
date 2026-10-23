@@ -107,6 +107,7 @@ export interface AgentOptions {
   skills?: Skill[];
   files?: AttachedFile[];
   mcpEndpoint?: string;
+  showOverlay?: boolean;
 }
 
 export function formatMcpResult(result: unknown, maxChars: number = 1200): string {
@@ -132,6 +133,7 @@ export class AgentController {
   private llmConfig: LLMConfig;
   private skills: Skill[];
   private files: AttachedFile[];
+  private showOverlay: boolean;
   private mcpClient?: McpClient;
   private toolRegistry: ToolRegistry;
   private history: AgentStepLog[] = [];
@@ -148,6 +150,7 @@ export class AgentController {
     this.maxSteps = options.maxSteps ?? 25;
     this.skills = options.skills ?? [];
     this.files = options.files ?? [];
+    this.showOverlay = options.showOverlay ?? false;
     this.toolRegistry = new ToolRegistry();
 
     if (options.mcpEndpoint && options.mcpEndpoint.trim() !== '') {
@@ -564,15 +567,19 @@ export class AgentController {
 
     const sendMsg = (): Promise<DOMState> => {
       return new Promise((resolve, reject) => {
-        chrome.tabs.sendMessage(tabId, { type: 'GET_DOM_STATE', showOverlay: true }, (response) => {
-          if (chrome.runtime.lastError) {
-            return reject(new Error(chrome.runtime.lastError.message));
-          }
-          if (!response || !response.success) {
-            return reject(new Error(response?.error || 'Failed to capture DOM state'));
-          }
-          resolve(response.data);
-        });
+        chrome.tabs.sendMessage(
+          tabId,
+          { type: 'GET_DOM_STATE', showOverlay: this.showOverlay },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              return reject(new Error(chrome.runtime.lastError.message));
+            }
+            if (!response || !response.success) {
+              return reject(new Error(response?.error || 'Failed to capture DOM state'));
+            }
+            resolve(response.data);
+          },
+        );
       });
     };
 

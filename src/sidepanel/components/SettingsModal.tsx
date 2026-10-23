@@ -49,6 +49,8 @@ interface SettingsModalProps {
   mcpEndpoint: string;
   onSaveMcpEndpoint: (endpoint: string) => void;
   onAddCustomSkill: (skill: Skill) => void;
+  showOverlay?: boolean;
+  onSaveShowOverlay?: (show: boolean) => void;
 }
 
 type SettingsTab = 'providers' | 'bounds' | 'mcp' | 'skills';
@@ -79,6 +81,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   mcpEndpoint,
   onSaveMcpEndpoint,
   onAddCustomSkill,
+  showOverlay,
+  onSaveShowOverlay,
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers');
   const [localConfig, setLocalConfig] = useState<LLMConfig>({ ...config });
@@ -87,6 +91,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   });
   const [localMaxSteps, setLocalMaxSteps] = useState<number>(maxSteps);
   const [localMcpEndpoint, setLocalMcpEndpoint] = useState<string>(mcpEndpoint);
+  const [localShowOverlay, setLocalShowOverlay] = useState<boolean>(showOverlay ?? false);
   const [customSkillMarkdown, setCustomSkillMarkdown] = useState<string>('');
   const [skillAddedMessage, setSkillAddedMessage] = useState<string>('');
 
@@ -274,6 +279,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  useEffect(() => {
+    setLocalShowOverlay(showOverlay ?? false);
+  }, [showOverlay, isOpen]);
+
   if (!isOpen) return null;
 
   const handleSave = () => {
@@ -286,6 +295,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onSaveConfig(localConfig, mergedConfigs);
     onSaveMaxSteps(localMaxSteps);
     onSaveMcpEndpoint(localMcpEndpoint);
+    onSaveShowOverlay?.(localShowOverlay);
     onClose();
   };
 
@@ -693,6 +703,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   Controls the maximum number of automated browser actions the agent can perform for
                   a single goal before halting to prevent runaway loops or budget exhaustion.
                 </p>
+              </div>
+
+              <div className="p-3 bg-slate-950/40 rounded-lg border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <label className="text-[11px] font-semibold text-slate-300">
+                      Show Element Overlay Badges
+                    </label>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">
+                      Paint yellow Set-of-Marks numbered badges on elements during execution.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-label="Show Element Overlay Badges"
+                    aria-checked={localShowOverlay}
+                    onClick={() => setLocalShowOverlay(!localShowOverlay)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                      localShowOverlay ? 'bg-indigo-600' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                        localShowOverlay ? 'translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+                <div className="text-[10px] text-slate-400 bg-slate-900/60 p-2 rounded border border-slate-800/80">
+                  <span className="font-semibold text-slate-300">
+                    {localShowOverlay
+                      ? 'Visual Grounding Mode:'
+                      : 'Clean Background Mode (Default):'}
+                  </span>{' '}
+                  {localShowOverlay
+                    ? 'Visual markers are stamped on the page for vision LLMs. Page content will show yellow numbered tags.'
+                    : 'Browgent navigates and inspects elements invisibly in memory without injecting visual tags into the page.'}
+                </div>
               </div>
 
               <div className="p-3 bg-slate-950/40 rounded-lg border border-slate-800 space-y-1">

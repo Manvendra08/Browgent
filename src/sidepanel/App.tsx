@@ -49,6 +49,7 @@ export const App: React.FC = () => {
   const [providerConfigs, setProviderConfigs] = useState<ProviderConfigMap>({});
   const [maxSteps, setMaxSteps] = useState<number>(25);
   const [mcpEndpoint, setMcpEndpoint] = useState<string>('');
+  const [showOverlay, setShowOverlay] = useState<boolean>(false);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -287,12 +288,16 @@ export const App: React.FC = () => {
           'browgent_max_steps',
           'browgent_mcp_endpoint',
           'browgent_provider_configs',
+          'browgent_show_overlay',
         ],
         (res) => {
           const activeConfig: LLMConfig = res.browgent_config || DEFAULT_CONFIG;
           if (res.browgent_config) setConfig(res.browgent_config);
           if (res.browgent_max_steps) setMaxSteps(res.browgent_max_steps);
           if (res.browgent_mcp_endpoint) setMcpEndpoint(res.browgent_mcp_endpoint);
+          if (typeof res.browgent_show_overlay === 'boolean') {
+            setShowOverlay(res.browgent_show_overlay);
+          }
 
           // Per-provider settings. Upgrading installs have no map yet, so seed it
           // from the currently active config to avoid losing their credentials.
@@ -345,6 +350,13 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleSaveShowOverlay = (show: boolean) => {
+    setShowOverlay(show);
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ browgent_show_overlay: show });
+    }
+  };
+
   const handleRun = () => {
     if (!goal.trim()) return;
 
@@ -371,6 +383,7 @@ export const App: React.FC = () => {
         skills,
         files,
         mcpEndpoint,
+        showOverlay,
       },
     });
   };
@@ -497,6 +510,8 @@ export const App: React.FC = () => {
         mcpEndpoint={mcpEndpoint}
         onSaveMcpEndpoint={handleSaveMcpEndpoint}
         onAddCustomSkill={handleAddCustomSkill}
+        showOverlay={showOverlay}
+        onSaveShowOverlay={handleSaveShowOverlay}
       />
     </div>
   );
