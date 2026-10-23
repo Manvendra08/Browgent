@@ -391,7 +391,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-900 text-slate-100 antialiased font-sans select-none overflow-hidden">
+    <div className="flex flex-col h-screen bg-slate-900 text-slate-100 antialiased font-sans overflow-hidden">
       {/* Top Header */}
       <header className="flex items-center justify-between px-3.5 py-2.5 bg-slate-950/80 border-b border-slate-800">
         <div className="flex items-center gap-2">

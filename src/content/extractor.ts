@@ -97,9 +97,18 @@ export function isKnownElement(doc: Document, node: Element, id: number): boolea
 }
 
 const SENSITIVE_INPUT_TYPES = new Set(['password', 'hidden']);
-const SENSITIVE_AUTOCOMPLETE = ['password', 'one-time-code', 'otp', 'cc-', 'csc-', 'current-password', 'new-password'];
+const SENSITIVE_AUTOCOMPLETE = [
+  'password',
+  'one-time-code',
+  'otp',
+  'cc-',
+  'csc-',
+  'current-password',
+  'new-password',
+];
 
-const SENSITIVE_NAME_PATTERN = /(pass(word|wd)?|secret|otp|one[-_]?time|cvv|cvc|cvv2|card|cardnum|cardnumber|ccnum|ccnumber|pan|primary[-_]?account|verification[-_]?code|security[-_]?code|pin|ssn|iban|api[-_]?key)/;
+const SENSITIVE_NAME_PATTERN =
+  /(pass(word|wd)?|secret|otp|one[-_]?time|cvv|cvc|cvv2|card|cardnum|cardnumber|ccnum|ccnumber|pan|primary[-_]?account|verification[-_]?code|security[-_]?code|pin|ssn|iban|api[-_]?key)/;
 
 export function isSensitiveField(el: Element): boolean {
   const input = el as HTMLInputElement;
@@ -164,7 +173,8 @@ function readStateClasses(node: Element): string | undefined {
 export const MAX_PERCEIVED_ELEMENTS = 150;
 export const MAX_PROMPT_CHARS = 40000;
 
-const SENSITIVE_URL_PARAM = /^(token|access[_-]?token|id[_-]?token|session|sess|sid|code|auth|authorization|api[_-]?key|apikey|key|secret|password|passwd|pwd|signature|sig|otp|pin|cvv|state|nonce)$/i;
+const SENSITIVE_URL_PARAM =
+  /^(token|access[_-]?token|id[_-]?token|session|sess|sid|code|auth|authorization|api[_-]?key|apikey|key|secret|password|passwd|pwd|signature|sig|otp|pin|cvv|state|nonce)$/i;
 
 function redactParams(search: string): string {
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
@@ -189,7 +199,9 @@ export function scrubUrl(url: string | undefined): string | undefined {
     }
     if (parsed.hash) {
       const rawHash = parsed.hash.slice(1);
-      parsed.hash = rawHash.includes('=') ? `#${redactParams(`?${rawHash}`).slice(1)}` : parsed.hash;
+      parsed.hash = rawHash.includes('=')
+        ? `#${redactParams(`?${rawHash}`).slice(1)}`
+        : parsed.hash;
     }
     return parsed.toString();
   } catch {
@@ -201,7 +213,8 @@ export function sanitizeUntrustedText(text: string): string {
   return text.replace(/<\/?page_content/gi, '[page_tag]');
 }
 
-export function isElementVisible(el: Element): boolean {  // Check inline styles and parent hidden containers
+export function isElementVisible(el: Element): boolean {
+  // Check inline styles and parent hidden containers
   let current: Element | null = el;
   while (current) {
     if (current instanceof HTMLElement) {
@@ -304,7 +317,10 @@ export function isEditableElement(node: Element): boolean {
   return false;
 }
 
-export function findAssociatedLabel(node: Element, doc: Document): { label?: string; group?: string } {
+export function findAssociatedLabel(
+  node: Element,
+  doc: Document,
+): { label?: string; group?: string } {
   let labelText: string | undefined;
   let groupText: string | undefined;
 
@@ -323,7 +339,10 @@ export function findAssociatedLabel(node: Element, doc: Document): { label?: str
   // 2. <label for="node.id">
   if (!labelText && node.id) {
     try {
-      const escapedId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(node.id) : node.id.replace(/"/g, '\\"');
+      const escapedId =
+        typeof CSS !== 'undefined' && CSS.escape
+          ? CSS.escape(node.id)
+          : node.id.replace(/"/g, '\\"');
       const labelEl = doc.querySelector(`label[for="${escapedId}"]`);
       if (labelEl && labelEl.textContent) {
         labelText = labelEl.textContent.trim();
@@ -349,7 +368,7 @@ export function findAssociatedLabel(node: Element, doc: Document): { label?: str
   // 4. Preceding sibling label or container label (.fb-single-line-text, .form-group, etc.)
   if (!labelText) {
     const container = node.closest(
-      '.fb-single-line-text, .fb-form-element, .form-group, .form-field, [data-test-form-element], .artdeco-text-input'
+      '.fb-single-line-text, .fb-form-element, .form-group, .form-field, [data-test-form-element], .artdeco-text-input',
     );
     if (container) {
       const groupLabel = container.querySelector('label, [class*="label" i]');
@@ -362,14 +381,14 @@ export function findAssociatedLabel(node: Element, doc: Document): { label?: str
   // 5. Look for enclosing question / prompt container (e.g. screening questions, rich text editors)
   if (!labelText) {
     const questionContainer = node.closest(
-      '[class*="question" i], [class*="prompt" i], [class*="form-group" i], [class*="form-field" i], [data-testid*="question" i], fieldset, section'
+      '[class*="question" i], [class*="prompt" i], [class*="form-group" i], [class*="form-field" i], [data-testid*="question" i], fieldset, section',
     );
     if (questionContainer) {
       const headingEl = questionContainer.querySelector(
-        'h1, h2, h3, h4, h5, [class*="title" i], [class*="header" i], [class*="label" i], [class*="name" i]'
+        'h1, h2, h3, h4, h5, [class*="title" i], [class*="header" i], [class*="label" i], [class*="name" i]',
       );
       const descEl = questionContainer.querySelector(
-        'p, [class*="desc" i], [class*="text" i], [class*="subtitle" i]'
+        'p, [class*="desc" i], [class*="text" i], [class*="subtitle" i]',
       );
       const parts: string[] = [];
       if (headingEl && headingEl.textContent && !headingEl.contains(node)) {
@@ -394,12 +413,19 @@ export function findAssociatedLabel(node: Element, doc: Document): { label?: str
   }
 
   // 7. Custom radio/checkbox group headers
-  if (!groupText && (node.getAttribute('type') === 'radio' || node.getAttribute('role') === 'radio' || node.getAttribute('type') === 'checkbox')) {
+  if (
+    !groupText &&
+    (node.getAttribute('type') === 'radio' ||
+      node.getAttribute('role') === 'radio' ||
+      node.getAttribute('type') === 'checkbox')
+  ) {
     const radioGroup = node.closest(
-      '[data-test-form-builder-radio-button-form-component], [role="radiogroup"], .fb-radio-group, [class*="radio-group" i]'
+      '[data-test-form-builder-radio-button-form-component], [role="radiogroup"], .fb-radio-group, [class*="radio-group" i]',
     );
     if (radioGroup) {
-      const header = radioGroup.querySelector('legend, [class*="header" i], [class*="title" i], [class*="legend" i], [class*="label" i]');
+      const header = radioGroup.querySelector(
+        'legend, [class*="header" i], [class*="title" i], [class*="legend" i], [class*="label" i]',
+      );
       if (header && header.textContent) {
         groupText = header.textContent.trim();
       }
@@ -436,7 +462,9 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
 
     // If a label wraps an input, let the input itself be the primary interactive element rather than duplicate badge
     if (node.tagName === 'LABEL') {
-      const hasChildControl = node.querySelector('input, textarea, select, [contenteditable], [role="textbox"]');
+      const hasChildControl = node.querySelector(
+        'input, textarea, select, [contenteditable], [role="textbox"]',
+      );
       if (hasChildControl) {
         return false;
       }
@@ -449,7 +477,13 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
 
     // Skip elements with zero dimensions and no text/inputs
     const text = (node.textContent || '').trim();
-    if (!text && !isFormInput && !node.getAttribute('aria-label') && !node.getAttribute('title') && !node.getAttribute('placeholder')) {
+    if (
+      !text &&
+      !isFormInput &&
+      !node.getAttribute('aria-label') &&
+      !node.getAttribute('title') &&
+      !node.getAttribute('placeholder')
+    ) {
       return false;
     }
 
@@ -463,7 +497,13 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
     let role = node.getAttribute('role') || undefined;
     let type = node.getAttribute('type') || undefined;
     const isEditable = isEditableElement(node);
-    if (!role && isEditable && tagName !== 'INPUT' && tagName !== 'TEXTAREA' && tagName !== 'SELECT') {
+    if (
+      !role &&
+      isEditable &&
+      tagName !== 'INPUT' &&
+      tagName !== 'TEXTAREA' &&
+      tagName !== 'SELECT'
+    ) {
       role = 'textbox';
     }
 
@@ -475,13 +515,15 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
       undefined;
     const value = redactValue(node, (node as HTMLInputElement).value || undefined);
     const href = scrubUrl((node as HTMLAnchorElement).href || undefined);
-    const checked = node instanceof HTMLInputElement && (node.type === 'radio' || node.type === 'checkbox')
-      ? node.checked
-      : undefined;
-    const disabled = Boolean(
-      (node as HTMLInputElement | HTMLButtonElement | HTMLSelectElement).disabled ||
-      node.getAttribute('aria-disabled') === 'true'
-    ) || undefined;
+    const checked =
+      node instanceof HTMLInputElement && (node.type === 'radio' || node.type === 'checkbox')
+        ? node.checked
+        : undefined;
+    const disabled =
+      Boolean(
+        (node as HTMLInputElement | HTMLButtonElement | HTMLSelectElement).disabled ||
+        node.getAttribute('aria-disabled') === 'true',
+      ) || undefined;
     const ariaChecked = node.getAttribute('aria-checked') || undefined;
     const ariaSelected = node.getAttribute('aria-selected') || undefined;
     const ariaCurrent = node.getAttribute('aria-current') || undefined;
@@ -495,7 +537,13 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
       const childInput = node.querySelector('input');
       if (childInput) {
         type = childInput.type;
-        role = role || (childInput.type === 'radio' ? 'radio' : childInput.type === 'checkbox' ? 'checkbox' : undefined);
+        role =
+          role ||
+          (childInput.type === 'radio'
+            ? 'radio'
+            : childInput.type === 'checkbox'
+              ? 'checkbox'
+              : undefined);
       }
     }
 
@@ -550,7 +598,10 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
   return elements;
 }
 
-export function formatElementsForPrompt(elements: PerceivedElement[], activeModalTitle?: string): string {
+export function formatElementsForPrompt(
+  elements: PerceivedElement[],
+  activeModalTitle?: string,
+): string {
   if (elements.length === 0) {
     return 'No visible interactive elements detected on this page.';
   }
@@ -567,7 +618,9 @@ export function formatElementsForPrompt(elements: PerceivedElement[], activeModa
 
   if (activeModalTitle) {
     lines.push(`[ACTIVE MODAL DIALOG DETECTED: "${activeModalTitle}"]`);
-    lines.push('A modal dialog is currently open on top of the page. You MUST interact with the modal dialog elements first to complete or submit the form.');
+    lines.push(
+      'A modal dialog is currently open on top of the page. You MUST interact with the modal dialog elements first to complete or submit the form.',
+    );
   }
 
   for (const el of candidates) {
@@ -639,7 +692,7 @@ export function formatElementsForPrompt(elements: PerceivedElement[], activeModa
   const trailing: string[] = [];
   if (omitted > 0) {
     trailing.push(
-      `[NOTE] ${omitted} further interactive elements exist on this page but are not listed here. Scroll the page so they enter the viewport, then they will be listed.`
+      `[NOTE] ${omitted} further interactive elements exist on this page but are not listed here. Scroll the page so they enter the viewport, then they will be listed.`,
     );
   }
   for (const note of notes) {
@@ -651,15 +704,76 @@ export function formatElementsForPrompt(elements: PerceivedElement[], activeModa
 
 export const MAX_TEXT_EXCERPT_CHARS = 10000;
 
-export function extractVisibleText(doc: Document = document, limit = MAX_TEXT_EXCERPT_CHARS): string {
+const IGNORED_TEXT_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'SVG']);
+
+function collectCleanText(root: Element): string {
+  const pieces: string[] = [];
+  const doc = root.ownerDocument || document;
+
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      let parent = node.parentElement;
+      while (parent && parent !== root) {
+        if (IGNORED_TEXT_TAGS.has(parent.tagName.toUpperCase())) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        parent = parent.parentElement;
+      }
+      if (parent && IGNORED_TEXT_TAGS.has(parent.tagName.toUpperCase())) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+
+  if (walker) {
+    let node = walker.nextNode();
+    while (node) {
+      const text = node.nodeValue?.trim();
+      if (text) {
+        pieces.push(text);
+      }
+      node = walker.nextNode();
+    }
+  }
+
+  return pieces.join(' ');
+}
+
+export function extractVisibleText(
+  doc: Document = document,
+  limit = MAX_TEXT_EXCERPT_CHARS,
+): string {
   const body = doc.body;
   if (!body) return '';
 
-  const raw = (body.innerText || body.textContent || '').replace(/\s+/g, ' ').trim();
-  if (!raw) return '';
-  if (raw.length <= limit) return raw;
+  let raw = collectCleanText(body);
 
-  return `${raw.slice(0, limit)}…`;
+  // If the page contains iframes (common in SharePoint, Word Online, Google Docs, PDF viewers):
+  try {
+    const iframes = Array.from(doc.querySelectorAll('iframe'));
+    for (const iframe of iframes) {
+      try {
+        const frameDoc = iframe.contentDocument;
+        if (frameDoc && frameDoc.body) {
+          const frameText = collectCleanText(frameDoc.body);
+          if (frameText) {
+            raw += ` [Document Frame: ${iframe.title || iframe.name || iframe.id || 'viewer'}] ${frameText}`;
+          }
+        }
+      } catch {
+        // Cross-origin iframe
+      }
+    }
+  } catch {
+    // Ignore frame query errors
+  }
+
+  const cleaned = raw.replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '';
+  if (cleaned.length <= limit) return cleaned;
+
+  return `${cleaned.slice(0, limit)}…`;
 }
 
 export function captureDOMState(doc: Document = document): DOMState {
