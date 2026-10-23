@@ -38,6 +38,11 @@ function resolveElementId(obj: Record<string, unknown>, actionName: string): num
   if (typeof candidate !== 'number' || !Number.isFinite(candidate)) {
     throw new Error(`${actionName} action requires numeric "elementId"`);
   }
+  if (candidate < 1) {
+    throw new Error(
+      `${actionName} action has invalid elementId [${candidate}]. Browgent element IDs are 1-based positive numbers. Element [0] does not exist.`
+    );
+  }
   return candidate;
 }
 
@@ -242,7 +247,10 @@ export async function executeAgentAction(
       case 'click': {
         const target = elements.find((el) => el.id === action.elementId);
         if (!target) {
-          throw new Error(`Element with id [${action.elementId}] not found in perception tree`);
+          const sample = elements.slice(0, 8).map((e) => e.id).join(', ');
+          throw new Error(
+            `Element with id [${action.elementId}] not found in perception tree${sample ? ` (available IDs on page: [${sample}${elements.length > 8 ? ', ...' : ''}])` : ''}`
+          );
         }
 
         let initialUrl: string | undefined;
@@ -313,7 +321,10 @@ export async function executeAgentAction(
       case 'type': {
         const target = elements.find((el) => el.id === action.elementId);
         if (!target) {
-          throw new Error(`Element with id [${action.elementId}] not found in perception tree`);
+          const sample = elements.slice(0, 8).map((e) => e.id).join(', ');
+          throw new Error(
+            `Element with id [${action.elementId}] not found in perception tree${sample ? ` (available IDs on page: [${sample}${elements.length > 8 ? ', ...' : ''}])` : ''}`
+          );
         }
 
         let initialUrl: string | undefined;

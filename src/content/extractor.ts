@@ -35,6 +35,16 @@ const INTERACTIVE_SELECTORS = [
   '[class*="option" i]',
   '[class*="choice" i]',
   '[class*="answer" i]',
+  '[data-identifier]',
+  '[data-email]',
+  '[data-authuser]',
+  '[data-profile-identifier]',
+  '[jsaction*="click"]',
+  '[jsaction*="select"]',
+  'li[role="presentation"]',
+  '[class*="account-item" i]',
+  '[class*="account-card" i]',
+  '[class*="profile-card" i]',
 ].join(', ');
 
 interface ElementIdState {
@@ -507,6 +517,21 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
       role = 'textbox';
     }
 
+    if (
+      !role &&
+      !isEditable &&
+      tagName !== 'INPUT' &&
+      tagName !== 'TEXTAREA' &&
+      tagName !== 'SELECT' &&
+      tagName !== 'A' &&
+      (node.hasAttribute('data-identifier') ||
+        node.hasAttribute('data-email') ||
+        node.hasAttribute('jsaction') ||
+        Boolean(node.getAttribute('class')?.match(/\b(account|profile|user-item|user-card)\b/i)))
+    ) {
+      role = 'button';
+    }
+
     const ariaLabel = node.getAttribute('aria-label') || undefined;
     const placeholder =
       (node as HTMLInputElement).placeholder ||
@@ -549,6 +574,10 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
 
     // Clean text representation
     let text = sanitizeUntrustedText((node.textContent || '').trim().replace(/\s+/g, ' '));
+    const dataIdentifier = node.getAttribute('data-identifier') || node.getAttribute('data-email');
+    if (dataIdentifier && !text.includes(dataIdentifier)) {
+      text = text ? `${text} (${dataIdentifier})` : dataIdentifier;
+    }
     if (text.length > 100) {
       text = text.substring(0, 100) + '...';
     }

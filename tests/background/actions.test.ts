@@ -155,6 +155,18 @@ describe('Action Parser', () => {
     expect(() => parseAgentAction(JSON.stringify({ action: 'unknown_action' }))).toThrow();
   });
 
+  it('rejects elementId 0 and negative elementId because element IDs are 1-based', () => {
+    expect(() => parseAgentAction(JSON.stringify({ action: 'click', elementId: 0 }))).toThrow(
+      /Browgent element IDs are 1-based positive numbers/
+    );
+    expect(() => parseAgentAction(JSON.stringify({ action: 'click', elementId: -1 }))).toThrow(
+      /Browgent element IDs are 1-based positive numbers/
+    );
+    expect(() => parseAgentAction(JSON.stringify({ action: 'type', elementId: 0, text: 'hello' }))).toThrow(
+      /Browgent element IDs are 1-based positive numbers/
+    );
+  });
+
   it('parses mcp_call action with tool and args', () => {
     const raw = JSON.stringify({
       action: 'mcp_call',
@@ -232,11 +244,12 @@ describe('executeAgentAction', () => {
     expect(mockedDispatchClick).not.toHaveBeenCalled();
   });
 
-  it('fails a click whose elementId is missing from the perception tree', async () => {
+  it('fails a click whose elementId is missing from the perception tree and lists available IDs', async () => {
     const result = await executeAgentAction(TAB_ID, { action: 'click', elementId: 99 }, ELEMENTS);
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('not found in perception tree');
+    expect(result.error).toContain('available IDs on page: [1, 2]');
     expect(sendMessage).not.toHaveBeenCalled();
     expect(mockedDispatchClick).not.toHaveBeenCalled();
   });

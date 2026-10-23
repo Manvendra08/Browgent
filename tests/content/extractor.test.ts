@@ -185,6 +185,32 @@ describe('DOM Extractor', () => {
     expect(formatted).toContain('placeholder="Enter your answer here..."');
     expect(formatted).toContain('label="Question #1 - Have you worked with digital product engineering providers?"');
   });
+
+  it('extracts Google and OAuth account selection tiles as clickable buttons', () => {
+    document.body.innerHTML = `
+      <div class="account-picker">
+        <div data-identifier="manvendra.anjan@gmail.com" jsaction="click:cHGgEd">
+          <div class="name">Manvendra Anjan</div>
+          <div class="email">manvendra.anjan@gmail.com</div>
+        </div>
+        <div class="account-item" jsaction="click:xyz">
+          <span class="user-text">Use another account</span>
+        </div>
+      </div>
+    `;
+
+    const elements = extractInteractiveElements(document);
+    expect(elements.length).toBeGreaterThanOrEqual(2);
+    const googleTile = elements.find((e) => e.text.includes('manvendra.anjan@gmail.com'));
+    expect(googleTile).toBeDefined();
+    expect(googleTile?.role).toBe('button');
+    expect(googleTile?.text).toContain('Manvendra Anjan');
+    expect(googleTile?.text).toContain('manvendra.anjan@gmail.com');
+
+    const anotherAcct = elements.find((e) => e.text.includes('Use another account'));
+    expect(anotherAcct).toBeDefined();
+    expect(anotherAcct?.role).toBe('button');
+  });
 });
 describe('captureDOMState page text excerpt', () => {
   beforeEach(() => {

@@ -185,8 +185,11 @@ export class AgentController {
   private stopRequested: boolean = false;
   private actionHistory: string[] = [];
   private finishRejections: number = 0;
-  private loopRejections: number = 0;
-  private readonly maxLoopRejections: number = 1;
+  private loopWarningsIssued: Set<string> = new Set();
+  private rootTabId: number = 0;
+  private currentTabId: number = 0;
+  private onTabCreatedListener: ((tab: chrome.tabs.Tab) => void) | null = null;
+  private onTabRemovedListener: ((tabId: number) => void) | null = null;
   private readonly pageNonce: string = Math.random().toString(36).slice(2, 12);
   private runAbortController: AbortController | null = null;
 
@@ -276,7 +279,33 @@ export class AgentController {
     this.history = [];
     this.actionHistory = [];
     this.finishRejections = 0;
+    this.loopWarningsIssued = new Set();
+    this.rootTabId = tabId;
+    this.currentTabId = tabId;
     this.runAbortController = new AbortController();
+
+    if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onCreated) {
+      this.onTabCreatedListener = (tab: chrome.tabs.Tab) => {
+        if (tab.id && (tab.openerTabId === this.currentTabId || tab.openerTabId === this.rootTabId)) {
+          console.log(`[Browgent Agent] Tracking popup/child tab ${tab.id} (opener: ${tab.openerTabId})`);
+          this.currentTabId = tab.id;
+          if (tab.url && !isRestrictedUrl(tab.url)) {
+            this.ensureContentScript(tab.id, tab.url).catch(() => {});
+          }
+        }
+      };
+      chrome.tabs.onCreated.addListener(this.onTabCreatedListener);
+    }
+
+    if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onRemoved) {
+      this.onTabRemovedListener = (removedId: number) => {
+        if (removedId === this.currentTabId && this.currentTabId !== this.rootTabId) {
+          console.log(`[Browgent Agent] Popup tab ${removedId} closed, returning to root tab ${this.rootTabId}`);
+          this.currentTabId = this.rootTabId;
+        }
+      };
+      chrome.tabs.onRemoved.addListener(this.onTabRemovedListener);
+    }
 
     // Initialize MCP tools if endpoint is provided
     if (this.mcpClient) {
@@ -307,12 +336,21 @@ export class AgentController {
           return { success: false, error: 'Agent execution stopped by user.' };
         }
 
+        // Validate child tab still open, else fallback to root
+        if (this.currentTabId !== this.rootTabId && typeof chrome !== 'undefined' && chrome.tabs?.get) {
+          try {
+            await chrome.tabs.get(this.currentTabId);
+          } catch {
+            this.currentTabId = this.rootTabId;
+          }
+        }
+
         this.currentStep++;
         onProgress({ type: 'step', data: { step: this.currentStep, maxSteps: this.maxSteps } });
 
         // 1. Perceive DOM State from content script and capture viewport screenshot
         const [domState, screenshot] = await Promise.all([
-          this.capturePageDOM(tabId),
+          this.capturePageDOM(this.currentTabId),
           this.captureViewportScreenshot(),
         ]);
 
@@ -406,9 +444,10 @@ export class AgentController {
 
           // Check for repeating action loops
           if (this.checkLoop(action)) {
-            if (this.loopRejections < this.maxLoopRejections) {
-              this.loopRejections++;
-              const warning = `Loop warning: Action ${JSON.stringify(action)} was repeated 3 times without effect. If a modal dialog or form is open, do NOT click to open it again; interact with its form inputs, radio options, or submit/review buttons directly. Choose a different element or action.`;
+            const actionKey = JSON.stringify(action);
+            if (!this.loopWarningsIssued.has(actionKey)) {
+              this.loopWarningsIssued.add(actionKey);
+              const warning = `Loop warning: Action ${actionKey} was repeated 3 times without effect. If a modal dialog or form is open, do NOT click to open it again; interact with its form inputs, radio options, or submit/review buttons directly. Choose a different element or action.`;
               this.history.push({
                 step: this.currentStep,
                 thought: decision.thought,
@@ -435,7 +474,7 @@ export class AgentController {
 
           if (action.action === 'finish') {
             const claimedSummary = action.summary || '';
-            const verdict = await this.verifyCompletion(tabId, goal, claimedSummary);
+            const verdict = await this.verifyCompletion(this.currentTabId, goal, claimedSummary);
 
             if (!verdict.confirmed) {
               const canRetry =
@@ -459,7 +498,7 @@ export class AgentController {
                     error: `Premature finish blocked: ${verdict.evidence} — continuing task`,
                   },
                 });
-                await this.stabilizePage(tabId, action);
+                await this.stabilizePage(this.currentTabId, action);
                 terminalReached = true;
                 break;
               }
@@ -476,7 +515,7 @@ export class AgentController {
                 error: failureMessage,
                 timestamp: Date.now(),
               });
-              await this.cleanup(tabId);
+              await this.cleanup(this.currentTabId);
               onProgress({ type: 'error', data: { error: failureMessage } });
               return { success: false, error: failureMessage };
             }
@@ -490,7 +529,7 @@ export class AgentController {
               success: true,
               timestamp: Date.now(),
             });
-            await this.cleanup(tabId);
+            await this.cleanup(this.currentTabId);
             onProgress({ type: 'done', data: { summary: finalSummary } });
             return { success: true, summary: finalSummary };
           }
@@ -505,12 +544,12 @@ export class AgentController {
               error: action.reason,
               timestamp: Date.now(),
             });
-            await this.cleanup(tabId);
+            await this.cleanup(this.currentTabId);
             onProgress({ type: 'error', data: { error: action.reason } });
             return { success: false, error: action.reason };
           }
 
-          const execResult = await this.dispatchAction(tabId, action, currentElements);
+          const execResult = await this.dispatchAction(this.currentTabId, action, currentElements);
 
           onProgress({
             type: 'action_result',
@@ -537,7 +576,7 @@ export class AgentController {
           // instead of a stale element map captured at the start of the turn.
           if (i < actionsToExecute.length - 1) {
             try {
-              const refreshed = await this.capturePageDOM(tabId);
+              const refreshed = await this.capturePageDOM(this.currentTabId);
               currentElements = refreshed.elements;
             } catch {
               // Keep the previous element map; the action will fail loudly if the target is gone.
@@ -552,12 +591,12 @@ export class AgentController {
 
         // Adaptive DOM stabilization between turns (250ms default or tab load wait)
         const lastAction = actionsToExecute[actionsToExecute.length - 1];
-        await this.stabilizePage(tabId, lastAction);
+        await this.stabilizePage(this.currentTabId, lastAction);
       }
 
       // Max steps exceeded
       this.status = 'failed';
-      await this.cleanup(tabId);
+      await this.cleanup(this.currentTabId);
       const limitMsg = `Max step budget (${this.maxSteps}) reached without achieving goal.`;
       onProgress({ type: 'error', data: { error: limitMsg } });
       return { success: false, error: limitMsg };
@@ -689,15 +728,30 @@ export class AgentController {
     if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.captureVisibleTab) {
       return null;
     }
+    let windowId: number | undefined;
+    if (this.currentTabId && typeof chrome.tabs.get === 'function') {
+      try {
+        const tab = await chrome.tabs.get(this.currentTabId);
+        windowId = tab.windowId;
+      } catch {
+        // use default window
+      }
+    }
+
     return new Promise((resolve) => {
       try {
-        chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 65 }, (dataUrl) => {
+        const callback = (dataUrl?: string) => {
           if (chrome.runtime.lastError || !dataUrl) {
             resolve(null);
           } else {
             resolve(dataUrl);
           }
-        });
+        };
+        if (typeof windowId === 'number') {
+          chrome.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 65 }, callback);
+        } else {
+          chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 65 }, callback);
+        }
       } catch {
         resolve(null);
       }
@@ -775,6 +829,10 @@ INSTRUCTIONS:
 11. The "wait" action is capped at 10 seconds per call; for longer pauses issue several waits.
 12. FOR NAVIGATION & URL CHANGES:
     - If you need to open or navigate to a target website to achieve the goal, use the "navigate" action (e.g. {"action": "navigate", "url": "https://www.google.com"}).
+13. FOR GOOGLE SIGN-IN, OAUTH & ACCOUNT CHOOSERS:
+    - All interactive element IDs in Browgent are 1-based positive integers (e.g. [1], [2], [3]...). There is NEVER an element [0]. Never guess or hallucinate elementId: 0.
+    - When selecting an account on a Google / Firebase / OAuth sign-in screen, click the specific account card/row matching the desired user or email. Look for its 1-based element ID in the INTERACTIVE ELEMENTS list (e.g. matching your email or name).
+    - If an authentication popup opened, Browgent automatically tracks and reads the active popup window.
 
 RESPONSE FORMAT:
 You MUST respond with a valid JSON block enclosed in \`\`\`json ... \`\`\`:
@@ -787,7 +845,7 @@ You MUST respond with a valid JSON block enclosed in \`\`\`json ... \`\`\`:
   }
 }
 \`\`\`
-The numbered id shown next to each element in the INTERACTIVE ELEMENTS list is the "elementId" parameter for click and type actions (for example {"action": "click", "elementId": 4}).
+The numbered id shown next to each element in the INTERACTIVE ELEMENTS list is the "elementId" parameter for click and type actions (for example {"action": "click", "elementId": 4}). NOTE: Element IDs are 1-based positive integers; elementId: 0 is invalid.
 OR for chained actions in a single turn (greatly speeds up execution):
 \`\`\`json
 {
@@ -1061,16 +1119,33 @@ ${domState.formattedPrompt}${textBlock}
   }
 
   private async cleanup(tabId: number): Promise<void> {
-    try {
-      await detachDebugger(tabId);
-    } catch {
-      // ignore
+    if (typeof chrome !== 'undefined' && chrome.tabs) {
+      if (this.onTabCreatedListener && chrome.tabs.onCreated) {
+        chrome.tabs.onCreated.removeListener(this.onTabCreatedListener);
+        this.onTabCreatedListener = null;
+      }
+      if (this.onTabRemovedListener && chrome.tabs.onRemoved) {
+        chrome.tabs.onRemoved.removeListener(this.onTabRemovedListener);
+        this.onTabRemovedListener = null;
+      }
     }
-    if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.sendMessage) {
+    const tabsToClean = new Set<number>();
+    if (tabId) tabsToClean.add(tabId);
+    if (this.rootTabId) tabsToClean.add(this.rootTabId);
+    if (this.currentTabId) tabsToClean.add(this.currentTabId);
+
+    for (const tid of tabsToClean) {
       try {
-        await chrome.tabs.sendMessage(tabId, { type: 'CLEAR_ALL_VISUALS' });
+        await detachDebugger(tid);
       } catch {
         // ignore
+      }
+      if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.sendMessage) {
+        try {
+          await chrome.tabs.sendMessage(tid, { type: 'CLEAR_ALL_VISUALS' });
+        } catch {
+          // ignore
+        }
       }
     }
   }
