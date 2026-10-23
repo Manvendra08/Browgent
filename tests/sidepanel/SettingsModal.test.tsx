@@ -6,20 +6,16 @@ import type { ProviderConfigMap } from '../../src/sidepanel/providerConfigs';
 
 vi.mock('../../src/sidepanel/modelFetch', () => ({
   fetchAvailableModels: vi.fn().mockResolvedValue({ models: [] }),
-  testConnection: vi
-    .fn()
-    .mockResolvedValue({
-      success: true,
-      latencyMs: 85,
-      message: 'Connected (85ms) • 5 models found',
-    }),
-  testMcpEndpoint: vi
-    .fn()
-    .mockResolvedValue({
-      success: true,
-      latencyMs: 40,
-      message: 'Connected (40ms) • 3 tools available',
-    }),
+  testConnection: vi.fn().mockResolvedValue({
+    success: true,
+    latencyMs: 85,
+    message: 'Connected (85ms) • 5 models found',
+  }),
+  testMcpEndpoint: vi.fn().mockResolvedValue({
+    success: true,
+    latencyMs: 40,
+    message: 'Connected (40ms) • 3 tools available',
+  }),
 }));
 
 const baseProps = {
@@ -192,5 +188,37 @@ describe('SettingsModal tab navigation and connection testing', () => {
     fireEvent.click(pingBtn);
 
     expect(await screen.findByText(/Connected \(40ms\) • 3 tools available/)).toBeDefined();
+  });
+
+  it('adds, renames, and switches multiple accounts for a provider', () => {
+    const { onSaveConfig } = renderModal();
+
+    // Default account name field
+    const accountNameInput = screen.getByPlaceholderText(/e\.g\. Kilo AI Gateway/);
+    expect((accountNameInput as HTMLInputElement).value).toBe('Default');
+
+    // Rename active account to "Personal"
+    fireEvent.change(accountNameInput, { target: { value: 'Personal' } });
+    fireEvent.change(keyInput(), { target: { value: 'sk-personal-key' } });
+
+    // Add a second account
+    fireEvent.click(screen.getByRole('button', { name: /Add Account/ }));
+    expect(screen.getByRole('button', { name: /Select Account 2/ })).toBeDefined();
+
+    // Rename second account to "Work" and set its key
+    fireEvent.change(accountNameInput, { target: { value: 'Work' } });
+    fireEvent.change(keyInput(), { target: { value: 'sk-work-key' } });
+
+    // Switch back to "Personal" account
+    fireEvent.click(screen.getByRole('button', { name: /Select Personal/ }));
+    expect(keyInput().value).toBe('sk-personal-key');
+
+    // Switch back to "Work" account
+    fireEvent.click(screen.getByRole('button', { name: /Select Work/ }));
+    expect(keyInput().value).toBe('sk-work-key');
+
+    // Save and verify onSaveConfig passes the active account config and merged map
+    fireEvent.click(screen.getByRole('button', { name: /Save Settings/ }));
+    expect(onSaveConfig).toHaveBeenCalled();
   });
 });

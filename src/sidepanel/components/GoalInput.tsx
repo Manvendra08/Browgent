@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Square, Sparkles } from 'lucide-react';
+import { Play, Square, Sparkles, X } from 'lucide-react';
 
 interface GoalInputProps {
   goal: string;
@@ -27,19 +27,31 @@ export const GoalInput: React.FC<GoalInputProps> = ({
     <div className="p-3 bg-slate-900 border-t border-slate-800 flex flex-col gap-2">
       <div className="relative">
         <textarea
-          className="w-full bg-slate-800/90 text-slate-100 placeholder-slate-500 text-xs rounded-lg p-2.5 pr-8 border border-slate-700/80 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 resize-none h-20 transition"
+          className="w-full bg-slate-800/90 text-slate-100 placeholder-slate-500 text-xs rounded-lg p-2.5 pr-14 border border-slate-700/80 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 resize-none h-20 transition"
           placeholder="Enter your automation goal... (e.g. Find top 3 products on this page and summarize prices)"
           value={goal}
           onChange={(e) => setGoal(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={isRunning}
         />
+        {goal && !isRunning && (
+          <button
+            type="button"
+            onClick={() => setGoal('')}
+            aria-label="Clear goal input"
+            title="Clear input"
+            className="absolute right-7 top-2 text-slate-500 hover:text-slate-300 p-1 rounded transition cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
         <Sparkles className="w-3.5 h-3.5 text-indigo-400 absolute right-2.5 top-2.5 pointer-events-none opacity-60" />
       </div>
 
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] text-slate-500">
-          Press <kbd className="bg-slate-800 px-1 py-0.5 rounded text-slate-400">Ctrl+Enter</kbd> to run
+          Press <kbd className="bg-slate-800 px-1 py-0.5 rounded text-slate-400">Ctrl+Enter</kbd> to
+          run
         </span>
 
         <div className="flex items-center gap-1.5">

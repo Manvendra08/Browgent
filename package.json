@@ -1,6 +1,6 @@
 {
   "name": "browgent",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Autonomous Native AI Browser Agent Chrome Extension",
   "type": "module",
   "scripts": {

@@ -18,6 +18,8 @@ import {
   CheckCircle2,
   Loader2,
   Sparkles,
+  User,
+  Trash2,
 } from 'lucide-react';
 import { LLMConfig, ProviderType } from '../../background/llm/types';
 import { Skill } from '../../background/skills/types';
@@ -28,6 +30,11 @@ import {
   configForProvider,
   hasSavedConfig,
   stashProviderConfig,
+  getProviderAccounts,
+  getActiveAccountId,
+  addProviderAccount,
+  deleteProviderAccount,
+  switchProviderAccount,
   type ProviderConfigMap,
 } from '../providerConfigs';
 
@@ -96,6 +103,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     success?: boolean;
     message?: string;
   } | null>(null);
+
+  const currentAccounts = getProviderAccounts(localProviderConfigs, localConfig.provider);
+  const currentActiveAccountId = getActiveAccountId(localProviderConfigs, localConfig.provider);
+  const activeAccount =
+    currentAccounts.find((a) => a.id === currentActiveAccountId) || currentAccounts[0];
+  const [currentAccountName, setCurrentAccountName] = useState<string>(
+    activeAccount?.name || 'Default',
+  );
+
+  useEffect(() => {
+    if (activeAccount) {
+      setCurrentAccountName(activeAccount.name);
+    }
+  }, [activeAccount?.id, activeAccount?.name]);
+
+  const handleSwitchAccount = (accountId: string) => {
+    if (accountId === currentActiveAccountId) return;
+    const stashedMap = stashProviderConfig(localProviderConfigs, localConfig, currentAccountName);
+    const nextMap = switchProviderAccount(stashedMap, localConfig.provider, accountId);
+    setLocalProviderConfigs(nextMap);
+    setLocalConfig(configForProvider(nextMap, localConfig.provider));
+    setTestResult(null);
+  };
+
+  const handleAddNewAccount = () => {
+    const stashedMap = stashProviderConfig(localProviderConfigs, localConfig, currentAccountName);
+    const { nextMap, newAccount } = addProviderAccount(stashedMap, localConfig.provider);
+    setLocalProviderConfigs(nextMap);
+    setLocalConfig(configForProvider(nextMap, localConfig.provider));
+    setCurrentAccountName(newAccount.name);
+    setTestResult(null);
+  };
+
+  const handleDeleteAccount = (accountId: string) => {
+    const nextMap = deleteProviderAccount(localProviderConfigs, localConfig.provider, accountId);
+    setLocalProviderConfigs(nextMap);
+    setLocalConfig(configForProvider(nextMap, localConfig.provider));
+    setTestResult(null);
+  };
+
+  const handleRenameAccount = (newName: string) => {
+    setCurrentAccountName(newName);
+    const nextMap = stashProviderConfig(localProviderConfigs, localConfig, newName);
+    setLocalProviderConfigs(nextMap);
+  };
 
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
@@ -225,7 +277,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   if (!isOpen) return null;
 
   const handleSave = () => {
-    const mergedConfigs = stashProviderConfig(localProviderConfigs, localConfig);
+    const mergedConfigs = stashProviderConfig(
+      localProviderConfigs,
+      localConfig,
+      currentAccountName,
+    );
     setLocalProviderConfigs(mergedConfigs);
     onSaveConfig(localConfig, mergedConfigs);
     onSaveMaxSteps(localMaxSteps);
@@ -235,7 +291,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const switchProvider = (provider: ProviderType) => {
     if (provider === localConfig.provider) return;
-    const mergedConfigs = stashProviderConfig(localProviderConfigs, localConfig);
+    const mergedConfigs = stashProviderConfig(
+      localProviderConfigs,
+      localConfig,
+      currentAccountName,
+    );
     setLocalProviderConfigs(mergedConfigs);
     setLocalConfig(configForProvider(mergedConfigs, provider));
     setTestResult(null);
@@ -383,6 +443,69 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </span>
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* Account Profiles */}
+              <div className="p-2.5 bg-slate-950/60 rounded-lg border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1.5">
+                    <User className="w-3 h-3 text-indigo-400" />
+                    Accounts / Profiles ({currentAccounts.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleAddNewAccount}
+                    className="flex items-center gap-1 text-[10px] font-medium text-indigo-400 hover:text-indigo-300 transition"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Add Account
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                  {currentAccounts.map((acc) => {
+                    const isSelected = acc.id === currentActiveAccountId;
+                    return (
+                      <button
+                        key={acc.id}
+                        type="button"
+                        onClick={() => handleSwitchAccount(acc.id)}
+                        aria-label={`Select ${acc.name}`}
+                        className={`px-2.5 py-1 rounded text-[11px] font-medium shrink-0 border transition flex items-center gap-1.5 ${
+                          isSelected
+                            ? 'bg-indigo-600/30 text-indigo-200 border-indigo-500'
+                            : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700/60'
+                        }`}
+                      >
+                        <span>{acc.name}</span>
+                        {isSelected && currentAccounts.length > 1 && (
+                          <span
+                            role="button"
+                            aria-label={`Delete ${acc.name}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteAccount(acc.id);
+                            }}
+                            className="text-slate-400 hover:text-rose-400 p-0.5 -mr-1 rounded cursor-pointer"
+                          >
+                            <Trash2 className="w-2.5 h-2.5" />
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="pt-1 flex items-center gap-2">
+                  <span className="text-[10px] text-slate-500 shrink-0">Account Name:</span>
+                  <input
+                    type="text"
+                    placeholder="e.g. Kilo AI Gateway, Work, DeepSeek"
+                    value={currentAccountName}
+                    onChange={(e) => handleRenameAccount(e.target.value)}
+                    className="flex-1 bg-slate-900 border border-slate-700/80 rounded px-2 py-0.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+                  />
                 </div>
               </div>
 

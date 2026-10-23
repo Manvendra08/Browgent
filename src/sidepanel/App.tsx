@@ -36,7 +36,9 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 export const App: React.FC = () => {
   const [goal, setGoal] = useState<string>('');
-  const [status, setStatus] = useState<'idle' | 'running' | 'completed' | 'failed' | 'stopped'>('idle');
+  const [status, setStatus] = useState<'idle' | 'running' | 'completed' | 'failed' | 'stopped'>(
+    'idle',
+  );
   const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
   const [finalSummary, setFinalSummary] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -280,7 +282,12 @@ export const App: React.FC = () => {
 
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.get(
-        ['browgent_config', 'browgent_max_steps', 'browgent_mcp_endpoint', 'browgent_provider_configs'],
+        [
+          'browgent_config',
+          'browgent_max_steps',
+          'browgent_mcp_endpoint',
+          'browgent_provider_configs',
+        ],
         (res) => {
           const activeConfig: LLMConfig = res.browgent_config || DEFAULT_CONFIG;
           if (res.browgent_config) setConfig(res.browgent_config);
@@ -291,7 +298,7 @@ export const App: React.FC = () => {
           // from the currently active config to avoid losing their credentials.
           const storedMap = (res.browgent_provider_configs || {}) as ProviderConfigMap;
           setProviderConfigs(seedProviderConfigs(storedMap, activeConfig));
-        }
+        },
       );
     }
   }, []);
@@ -344,7 +351,9 @@ export const App: React.FC = () => {
     const port = getOrCreatePort();
     if (!port) {
       setStatus('failed');
-      setErrorMessage('Could not establish connection to background service worker. Please reload the extension.');
+      setErrorMessage(
+        'Could not establish connection to background service worker. Please reload the extension.',
+      );
       return;
     }
 
@@ -393,7 +402,7 @@ export const App: React.FC = () => {
             <div className="flex items-center gap-1.5">
               <span className="font-bold text-xs tracking-tight text-slate-200">Browgent</span>
               <span className="text-[9px] font-semibold uppercase px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                v0.3.0
+                v0.4.0
               </span>
             </div>
             <div className="text-[10px] text-slate-400 font-mono">
