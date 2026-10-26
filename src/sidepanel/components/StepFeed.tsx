@@ -17,6 +17,7 @@ import {
   ArrowDown,
 } from 'lucide-react';
 import { AgentAction } from '../../background/types';
+import { Markdown } from './Markdown';
 
 export interface FeedItem {
   id: string;
@@ -272,9 +273,7 @@ export const StepFeed: React.FC<StepFeedProps> = ({
               {copied ? 'Copied' : 'Copy'}
             </button>
           </div>
-          <p className="text-slate-200 text-[11px] leading-relaxed whitespace-pre-wrap">
-            {finalSummary}
-          </p>
+          <Markdown content={finalSummary} className="text-slate-200 text-[11px] leading-relaxed" />
         </div>
       )}
 
