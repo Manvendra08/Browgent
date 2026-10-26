@@ -1,7 +1,31 @@
-import { defineConfig } from 'vite';
+import { defineConfig, build } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 import fs from 'fs';
+
+function buildContentScript() {
+  return {
+    name: 'build-content-script',
+    async writeBundle() {
+      await build({
+        configFile: false,
+        build: {
+          emptyOutDir: false,
+          outDir: resolve(__dirname, 'dist'),
+          rollupOptions: {
+            input: resolve(__dirname, 'src/content/index.ts'),
+            output: {
+              format: 'iife',
+              entryFileNames: 'content.js',
+              extend: true,
+            },
+          },
+        },
+      });
+      console.log('[build] Bundled self-contained IIFE content.js');
+    },
+  };
+}
 
 function copyExtensionAssets() {
   return {
@@ -37,7 +61,7 @@ function copyExtensionAssets() {
 }
 
 export default defineConfig({
-  plugins: [react(), copyExtensionAssets()],
+  plugins: [react(), buildContentScript(), copyExtensionAssets()],
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -45,11 +69,10 @@ export default defineConfig({
       input: {
         sidepanel: resolve(__dirname, 'src/sidepanel/index.html'),
         background: resolve(__dirname, 'src/background/index.ts'),
-        content: resolve(__dirname, 'src/content/index.ts'),
       },
       output: {
         entryFileNames: (chunkInfo) => {
-          if (chunkInfo.name === 'background' || chunkInfo.name === 'content') {
+          if (chunkInfo.name === 'background') {
             return '[name].js';
           }
           return 'assets/[name].js';
