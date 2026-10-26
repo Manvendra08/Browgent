@@ -91,3 +91,12 @@ export interface ActionResult {
   summary?: string;
   data?: unknown;
 }
+
+export interface StepTimings {
+  totalMs: number;
+  domMs: number;
+  screenshotMs: number;
+  llmMs: number;
+  actionMs: number;
+  settleMs: number;
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { AgentController } from '../../src/background/agent';
+import { AgentController, downscaleScreenshot } from '../../src/background/agent';
 
 vi.mock('../../src/background/llm/client', () => ({
   queryLLM: vi.fn(),
@@ -327,6 +327,78 @@ describe('Agent Controller', () => {
       expect(sendMessageMock).toHaveBeenCalledWith(1, { type: 'CLEAR_ALL_VISUALS' });
 
       vi.unstubAllGlobals();
+    });
+
+    describe('downscaleScreenshot', () => {
+      it('returns dataUrl untouched when OffscreenCanvas is undefined in environment', async () => {
+        const data = 'data:image/jpeg;base64,sample123';
+        const result = await downscaleScreenshot(data, 1280);
+        expect(result).toBe(data);
+      });
+
+      it('returns dataUrl untouched when dimensions are within maxDimension', async () => {
+        const mockBitmap = {
+          width: 1000,
+          height: 600,
+          close: vi.fn(),
+        };
+        vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue(mockBitmap));
+        vi.stubGlobal('OffscreenCanvas', class {
+          constructor() {}
+        });
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+          blob: vi.fn().mockResolvedValue(new Blob(['fake'])),
+        }));
+
+        const data = 'data:image/jpeg;base64,smallimage';
+        const result = await downscaleScreenshot(data, 1280);
+        expect(result).toBe(data);
+        expect(mockBitmap.close).toHaveBeenCalled();
+
+        vi.unstubAllGlobals();
+      });
+
+      it('scales image down to maxDimension when width or height exceeds threshold', async () => {
+        const mockBitmap = {
+          width: 2560,
+          height: 1440,
+          close: vi.fn(),
+        };
+        const mockDrawImage = vi.fn();
+        const mockConvertToBlob = vi.fn().mockResolvedValue({
+          arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]).buffer),
+        });
+
+        class MockOffscreenCanvas {
+          width: number;
+          height: number;
+          constructor(w: number, h: number) {
+            this.width = w;
+            this.height = h;
+          }
+          getContext() {
+            return { drawImage: mockDrawImage };
+          }
+          convertToBlob(opts: unknown) {
+            return mockConvertToBlob(opts);
+          }
+        }
+
+        vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue(mockBitmap));
+        vi.stubGlobal('OffscreenCanvas', MockOffscreenCanvas);
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+          blob: vi.fn().mockResolvedValue(new Blob(['fake'])),
+        }));
+
+        const data = 'data:image/jpeg;base64,bigimage';
+        const result = await downscaleScreenshot(data, 1280);
+
+        expect(mockDrawImage).toHaveBeenCalledWith(mockBitmap, 0, 0, 1280, 720);
+        expect(mockBitmap.close).toHaveBeenCalled();
+        expect(result).toContain('data:image/jpeg;base64,');
+
+        vi.unstubAllGlobals();
+      });
     });
   });
 });

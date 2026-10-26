@@ -1,7 +1,8 @@
 import { AgentAction } from '../background/types';
-import { FeedItem } from './components/StepFeed';
+import { FeedItem, StepTimings } from './components/StepFeed';
 import { scrubUrl } from '../content/extractor';
 
+export type { StepTimings };
 export type TurnMode = 'ask' | 'agent';
 
 export interface Turn {
@@ -134,7 +135,7 @@ export async function saveThreads(threads: Thread[]): Promise<void> {
 }
 
 export interface AgentEventPayload {
-  type: 'step' | 'thought' | 'action' | 'action_result' | 'done' | 'error';
+  type: 'step' | 'thought' | 'action' | 'action_result' | 'step_telemetry' | 'done' | 'error';
   data?: unknown;
 }
 
@@ -206,13 +207,37 @@ export function applyAgentEvent(turn: Turn, event: AgentEventPayload): Turn {
     }
 
     case 'action_result': {
-      const resData = event.data as { success: boolean; result?: string; error?: string };
+      const resData = event.data as {
+        success: boolean;
+        result?: string;
+        error?: string;
+        timings?: StepTimings;
+      };
       if (nextSteps.length > 0) {
         const last = nextSteps[nextSteps.length - 1];
         nextSteps[nextSteps.length - 1] = {
           ...last,
           status: resData?.success ? 'success' : 'error',
           error: resData?.error,
+          timings: resData?.timings ?? last.timings,
+        };
+      }
+      return {
+        ...turn,
+        steps: nextSteps,
+      };
+    }
+
+    case 'step_telemetry': {
+      const telData = event.data as { step?: number; timings?: StepTimings };
+      if (nextSteps.length > 0 && telData?.timings) {
+        const targetIdx = typeof telData.step === 'number'
+          ? nextSteps.findIndex((s) => s.step === telData.step)
+          : -1;
+        const idx = targetIdx !== -1 ? targetIdx : nextSteps.length - 1;
+        nextSteps[idx] = {
+          ...nextSteps[idx],
+          timings: telData.timings,
         };
       }
       return {

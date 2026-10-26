@@ -113,6 +113,26 @@ describe('threads model and persistence', () => {
       expect(turn.steps[0].error).toBe('Element missing');
     });
 
+    it('attaches step telemetry timings to the corresponding step on step_telemetry event', () => {
+      let turn = applyAgentEvent(baseTurn, {
+        type: 'step',
+        data: { step: 1, maxSteps: 10 },
+      });
+      const timings = {
+        totalMs: 2450,
+        domMs: 120,
+        screenshotMs: 180,
+        llmMs: 1500,
+        actionMs: 250,
+        settleMs: 400,
+      };
+      turn = applyAgentEvent(turn, {
+        type: 'step_telemetry',
+        data: { step: 1, timings },
+      });
+      expect(turn.steps[0].timings).toEqual(timings);
+    });
+
     it('updates turn status to completed with summary on done event', () => {
       const turn = applyAgentEvent(baseTurn, {
         type: 'done',

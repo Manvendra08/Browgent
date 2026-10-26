@@ -214,7 +214,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
         try {
           const onProgressCb = (event: {
-            type: 'step' | 'thought' | 'action' | 'action_result' | 'done' | 'error';
+            type: 'step' | 'thought' | 'action' | 'action_result' | 'step_telemetry' | 'done' | 'error';
             data?: unknown;
           }) => {
             if (sidepanelPort) {

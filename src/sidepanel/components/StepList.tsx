@@ -12,7 +12,9 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
-import { AgentAction } from '../../background/types';
+import { AgentAction, StepTimings } from '../../background/types';
+
+export type { StepTimings };
 
 export interface FeedItem {
   id: string;
@@ -22,6 +24,7 @@ export interface FeedItem {
   status: 'running' | 'success' | 'error';
   error?: string;
   timestamp: number;
+  timings?: StepTimings;
 }
 
 interface StepListProps {
@@ -113,6 +116,14 @@ export const StepList: React.FC<StepListProps> = ({ items }) => {
                 )}
                 {item.status === 'success' && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
                 {item.status === 'error' && <AlertCircle className="w-3 h-3 text-rose-400" />}
+                {item.timings && (
+                  <span
+                    className="text-[10px] text-slate-400 font-mono bg-slate-900/80 px-1.5 py-0.2 rounded border border-slate-700/60 cursor-help"
+                    title={`DOM: ${item.timings.domMs}ms | Shot: ${item.timings.screenshotMs}ms | LLM: ${item.timings.llmMs}ms | Action: ${item.timings.actionMs}ms | Settle: ${item.timings.settleMs}ms`}
+                  >
+                    {(item.timings.totalMs / 1000).toFixed(1)}s (LLM {(item.timings.llmMs / 1000).toFixed(1)}s)
+                  </span>
+                )}
               </div>
               <span className="text-[10px] text-slate-400">
                 {new Date(item.timestamp).toLocaleTimeString([], {

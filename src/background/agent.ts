@@ -1,6 +1,6 @@
 import { LLMConfig, LLMMessage, AgentDecision } from './llm/types';
 import { queryLLM, queryLLMRaw } from './llm/client';
-import { AgentAction, McpCallAction, ActionResult } from './types';
+import { AgentAction, McpCallAction, ActionResult, StepTimings } from './types';
 import { DOMState } from '../content/types';
 import { executeAgentAction } from './actions';
 import { ToolRegistry } from './tools/registry';
@@ -17,6 +17,60 @@ export const MAX_BATCH_ACTIONS = 3;
 export const MAX_HISTORY_CHARS = 8000;
 /** Page prose handed to the action prompt. Bounded so a long page cannot blow the context budget. */
 export const MAX_PROMPT_TEXT_CHARS = 8000;
+
+export async function downscaleScreenshot(
+  dataUrl: string,
+  maxDimension = 1280,
+  quality = 0.65,
+): Promise<string> {
+  if (
+    !dataUrl ||
+    typeof OffscreenCanvas === 'undefined' ||
+    typeof createImageBitmap === 'undefined' ||
+    typeof fetch === 'undefined'
+  ) {
+    return dataUrl;
+  }
+  try {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const bitmap = await createImageBitmap(blob);
+    const { width, height } = bitmap;
+
+    if (width <= maxDimension && height <= maxDimension) {
+      if (typeof bitmap.close === 'function') bitmap.close();
+      return dataUrl;
+    }
+
+    const scale = Math.min(1, maxDimension / Math.max(width, height));
+    const targetWidth = Math.max(1, Math.round(width * scale));
+    const targetHeight = Math.max(1, Math.round(height * scale));
+
+    const canvas = new OffscreenCanvas(targetWidth, targetHeight);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      if (typeof bitmap.close === 'function') bitmap.close();
+      return dataUrl;
+    }
+
+    ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+    if (typeof bitmap.close === 'function') bitmap.close();
+
+    const downscaledBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality });
+    const arrayBuffer = await downscaledBlob.arrayBuffer();
+    const uint8 = new Uint8Array(arrayBuffer);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < uint8.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, Array.from(uint8.subarray(i, i + chunkSize)));
+    }
+    const base64 = btoa(binary);
+    return `data:image/jpeg;base64,${base64}`;
+  } catch (err: unknown) {
+    console.warn('[Browgent] Screenshot downscale failed, using original:', err);
+    return dataUrl;
+  }
+}
 
 export type GoalKind = 'action' | 'question';
 
@@ -278,7 +332,7 @@ export class AgentController {
     tabId: number,
     goal: string,
     onProgress: (event: {
-      type: 'step' | 'thought' | 'action' | 'action_result' | 'done' | 'error';
+      type: 'step' | 'thought' | 'action' | 'action_result' | 'step_telemetry' | 'done' | 'error';
       data?: unknown;
     }) => void,
   ): Promise<{ success: boolean; summary?: string; error?: string }> {
@@ -388,19 +442,33 @@ export class AgentController {
           }
         }
 
+        const stepStartTime = Date.now();
         this.currentStep++;
         onProgress({ type: 'step', data: { step: this.currentStep, maxSteps: this.maxSteps } });
 
         // 1. Perceive DOM State from content script and capture viewport screenshot
+        let domMs = 0;
+        let screenshotMs = 0;
         const [domState, screenshot] = await Promise.all([
-          this.capturePageDOM(this.currentTabId),
-          this.captureViewportScreenshot(),
+          (async () => {
+            const start = Date.now();
+            const res = await this.capturePageDOM(this.currentTabId);
+            domMs = Date.now() - start;
+            return res;
+          })(),
+          (async () => {
+            const start = Date.now();
+            const res = await this.captureViewportScreenshot();
+            screenshotMs = Date.now() - start;
+            return res;
+          })(),
         ]);
 
         // 2. Build Prompt Messages with visual screenshot context
         const messages = this.buildPromptMessages(goal, domState, screenshot);
 
         // 3. Query LLM (with 1 automatic retry on transient timeout/network glitch)
+        const tLlmStart = Date.now();
         let decision: AgentDecision;
         try {
           decision = await queryLLM(this.llmConfig, messages, this.runAbortController?.signal);
@@ -458,6 +526,7 @@ export class AgentController {
             throw new Error(`LLM Error at step ${this.currentStep}: ${firstMsg}`);
           }
         }
+        const llmMs = Date.now() - tLlmStart;
 
         onProgress({
           type: 'thought',
@@ -471,6 +540,7 @@ export class AgentController {
 
         let terminalReached = false;
         let currentElements = domState.elements;
+        let totalActionMs = 0;
 
         for (let i = 0; i < actionsToExecute.length; i++) {
           const action = actionsToExecute[i];
@@ -592,7 +662,9 @@ export class AgentController {
             return { success: false, error: action.reason };
           }
 
+          const tActionStart = Date.now();
           const execResult = await this.dispatchAction(this.currentTabId, action, currentElements);
+          totalActionMs += Date.now() - tActionStart;
 
           onProgress({
             type: 'action_result',
@@ -633,8 +705,32 @@ export class AgentController {
         }
 
         // Adaptive DOM stabilization between turns (250ms default or tab load wait)
+        const tSettleStart = Date.now();
         const lastAction = actionsToExecute[actionsToExecute.length - 1];
         await this.stabilizePage(this.currentTabId, lastAction);
+        const settleMs = Date.now() - tSettleStart;
+
+        const totalMs = Date.now() - stepStartTime;
+        const timings: StepTimings = {
+          totalMs,
+          domMs,
+          screenshotMs,
+          llmMs,
+          actionMs: totalActionMs,
+          settleMs,
+        };
+
+        console.log(
+          `[Browgent Telemetry] Step ${this.currentStep}: total ${totalMs}ms | DOM: ${domMs}ms | Shot: ${screenshotMs}ms | LLM: ${llmMs}ms | Action: ${totalActionMs}ms | Settle: ${settleMs}ms`,
+        );
+
+        onProgress({
+          type: 'step_telemetry',
+          data: {
+            step: this.currentStep,
+            timings,
+          },
+        });
       }
 
       // Max steps exceeded
@@ -656,7 +752,7 @@ export class AgentController {
     tabId: number,
     question: string,
     onProgress: (event: {
-      type: 'step' | 'thought' | 'action' | 'action_result' | 'done' | 'error';
+      type: 'step' | 'thought' | 'action' | 'action_result' | 'step_telemetry' | 'done' | 'error';
       data?: unknown;
     }) => void,
   ): Promise<{ success: boolean; summary?: string; error?: string }> {
@@ -672,11 +768,24 @@ export class AgentController {
         }
       }
 
+      const tAnswerStart = Date.now();
       await this.ensureContentScript(tabId);
 
+      let domMs = 0;
+      let screenshotMs = 0;
       const [domState, screenshot] = await Promise.all([
-        this.capturePageDOM(tabId),
-        this.captureViewportScreenshot(),
+        (async () => {
+          const start = Date.now();
+          const res = await this.capturePageDOM(tabId);
+          domMs = Date.now() - start;
+          return res;
+        })(),
+        (async () => {
+          const start = Date.now();
+          const res = await this.captureViewportScreenshot();
+          screenshotMs = Date.now() - start;
+          return res;
+        })(),
       ]);
 
       const { textPrompt: attachedFilesText, images } = formatAttachedFilesForPrompt(this.files);
@@ -747,7 +856,15 @@ ${fileSection}`;
         },
       ];
 
+      const tLlmStart = Date.now();
       const answer = await queryLLMRaw(this.llmConfig, messages, this.runAbortController?.signal);
+      const llmMs = Date.now() - tLlmStart;
+      const totalMs = Date.now() - tAnswerStart;
+
+      console.log(
+        `[Browgent Telemetry] Ask Mode: total ${totalMs}ms | DOM: ${domMs}ms | Shot: ${screenshotMs}ms | LLM: ${llmMs}ms`,
+      );
+
       this.status = 'completed';
       onProgress({ type: 'done', data: { summary: answer } });
       return { success: true, summary: answer };
@@ -877,6 +994,14 @@ ${fileSection}`;
     throw new Error('Failed to capture page DOM state after bfcache/navigation recovery.');
   }
 
+  public async downscaleScreenshot(
+    dataUrl: string,
+    maxDimension = 1280,
+    quality = 0.65,
+  ): Promise<string> {
+    return downscaleScreenshot(dataUrl, maxDimension, quality);
+  }
+
   private async captureViewportScreenshot(): Promise<string | null> {
     if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.captureVisibleTab) {
       return null;
@@ -891,7 +1016,7 @@ ${fileSection}`;
       }
     }
 
-    return new Promise((resolve) => {
+    const rawDataUrl = await new Promise<string | null>((resolve) => {
       try {
         const callback = (dataUrl?: string) => {
           if (chrome.runtime.lastError || !dataUrl) {
@@ -909,6 +1034,9 @@ ${fileSection}`;
         resolve(null);
       }
     });
+
+    if (!rawDataUrl) return null;
+    return downscaleScreenshot(rawDataUrl, 1280, 0.65);
   }
 
   private buildPromptMessages(
@@ -1233,11 +1361,27 @@ ${domState.formattedPrompt}${textBlock}
     goal: string,
     claimedAnswer = '',
   ): Promise<CompletionVerdict> {
+    const tAuditStart = Date.now();
+    let auditDomMs = 0;
+    let auditShotMs = 0;
     const [domResult, screenshot] = await Promise.all([
-      this.capturePageDOM(tabId).catch((err: unknown) => ({
-        error: err instanceof Error ? err.message : String(err),
-      })),
-      this.captureViewportScreenshot(),
+      (async () => {
+        const start = Date.now();
+        try {
+          const res = await this.capturePageDOM(tabId);
+          auditDomMs = Date.now() - start;
+          return res;
+        } catch (err: unknown) {
+          auditDomMs = Date.now() - start;
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+      })(),
+      (async () => {
+        const start = Date.now();
+        const res = await this.captureViewportScreenshot();
+        auditShotMs = Date.now() - start;
+        return res;
+      })(),
     ]);
 
     if ('error' in domResult) {
@@ -1258,8 +1402,17 @@ ${domState.formattedPrompt}${textBlock}
         goalKind,
         screenshot,
       );
+      const tAuditLlmStart = Date.now();
       const raw = await queryLLMRaw(this.llmConfig, messages, this.runAbortController?.signal);
-      return { ...parseCompletionVerdict(raw), goalKind };
+      const auditLlmMs = Date.now() - tAuditLlmStart;
+      const auditTotalMs = Date.now() - tAuditStart;
+      const verdict = { ...parseCompletionVerdict(raw), goalKind };
+
+      console.log(
+        `[Browgent Telemetry] Audit: total ${auditTotalMs}ms | DOM: ${auditDomMs}ms | Shot: ${auditShotMs}ms | LLM: ${auditLlmMs}ms | confirmed: ${verdict.confirmed}`,
+      );
+
+      return verdict;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return {

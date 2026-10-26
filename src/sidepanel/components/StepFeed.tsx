@@ -1,6 +1,6 @@
-import { StepList, FeedItem } from './StepList';
+import { StepList, FeedItem, StepTimings } from './StepList';
 
-export type { FeedItem };
+export type { FeedItem, StepTimings };
 export { StepList };
 
 // Backward-compatible alias for existing imports
