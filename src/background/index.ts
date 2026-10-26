@@ -79,17 +79,27 @@ chrome.runtime.onConnect.addListener((port) => {
 
     port.onMessage.addListener(async (msg) => {
       if (msg.type === 'START_AGENT') {
-        const { goal, llmConfig, maxSteps, skills, files, mcpEndpoint, showOverlay, conversation } =
-          msg.payload as {
-            goal: string;
-            llmConfig: LLMConfig;
-            maxSteps?: number;
-            skills?: Skill[];
-            files?: AttachedFile[];
-            mcpEndpoint?: string;
-            showOverlay?: boolean;
-            conversation?: { prompt: string; result: string }[];
-          };
+        const {
+          goal,
+          llmConfig,
+          maxSteps,
+          skills,
+          files,
+          mcpEndpoint,
+          showOverlay,
+          conversation,
+          mode,
+        } = msg.payload as {
+          goal: string;
+          llmConfig: LLMConfig;
+          maxSteps?: number;
+          skills?: Skill[];
+          files?: AttachedFile[];
+          mcpEndpoint?: string;
+          showOverlay?: boolean;
+          conversation?: { prompt: string; result: string }[];
+          mode?: 'ask' | 'agent';
+        };
 
         // Find the active tab: prefer the last focused window (the one the
         // side panel is attached to), fall back to the current window.
@@ -110,8 +120,8 @@ chrome.runtime.onConnect.addListener((port) => {
         const onNewTab = isNewTabPage(currentUrl);
         const explicitTarget = extractTargetUrlFromGoal(goal);
 
-        // If the user starts from a new tab or requests a target site, auto-navigate
-        if (onNewTab || explicitTarget) {
+        // If the user starts from a new tab or requests a target site, auto-navigate (Agent mode only)
+        if (mode !== 'ask' && (onNewTab || explicitTarget)) {
           const destinationUrl = explicitTarget || 'https://www.google.com';
 
           if (isRestrictedUrl(destinationUrl)) {
@@ -146,7 +156,7 @@ chrome.runtime.onConnect.addListener((port) => {
         if (isRestrictedUrl(currentUrl)) {
           port.postMessage({
             type: 'ERROR',
-            error: `Cannot automate internal browser page (${currentUrl || 'new tab'}). ${RESTRICTED_URL_HINT}`,
+            error: `Cannot ${mode === 'ask' ? 'inspect' : 'automate'} internal browser page (${currentUrl || 'new tab'}). ${RESTRICTED_URL_HINT}`,
           });
           return;
         }
@@ -173,11 +183,19 @@ chrome.runtime.onConnect.addListener((port) => {
         });
 
         try {
-          const result = await activeAgent.run(tabId, goal, (event) => {
+          const onProgressCb = (event: {
+            type: 'step' | 'thought' | 'action' | 'action_result' | 'done' | 'error';
+            data?: unknown;
+          }) => {
             if (sidepanelPort) {
               sidepanelPort.postMessage({ type: 'AGENT_EVENT', event });
             }
-          });
+          };
+
+          const result =
+            mode === 'ask'
+              ? await activeAgent.answer(tabId, goal, onProgressCb)
+              : await activeAgent.run(tabId, goal, onProgressCb);
 
           port.postMessage({
             type: 'FINISHED',

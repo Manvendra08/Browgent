@@ -6,8 +6,9 @@ vi.mock('../../src/background/llm/client', () => ({
   queryLLMRaw: vi.fn(),
 }));
 
-import { queryLLM } from '../../src/background/llm/client';
+import { queryLLM, queryLLMRaw } from '../../src/background/llm/client';
 const mockedQueryLLM = vi.mocked(queryLLM);
+const mockedQueryLLMRaw = vi.mocked(queryLLMRaw);
 
 describe('Agent Controller', () => {
   it('initializes in idle status', () => {
@@ -238,5 +239,52 @@ describe('Agent Controller', () => {
 
     expect(capturedPrompt).toContain('USER GOAL: "Initial query"');
     expect(capturedPrompt).not.toContain('<prior_conversation');
+  });
+
+  describe('answer (Ask mode)', () => {
+    it('makes exactly one LLM call and returns markdown summary without action loops', async () => {
+      mockedQueryLLMRaw.mockClear();
+      mockedQueryLLM.mockClear();
+      mockedQueryLLMRaw.mockResolvedValueOnce('# Page Summary\n\n- Key point 1\n- Key point 2');
+
+      const events: Array<{ type: string; data?: unknown }> = [];
+      const controller = new AgentController({
+        llmConfig: { provider: 'omniroute', model: 'free' },
+      });
+
+      const result = await controller.answer(1, 'Summarize this page', (e) => events.push(e));
+
+      expect(result.success).toBe(true);
+      expect(result.summary).toBe('# Page Summary\n\n- Key point 1\n- Key point 2');
+      expect(mockedQueryLLMRaw).toHaveBeenCalledTimes(1);
+      expect(mockedQueryLLM).not.toHaveBeenCalled();
+
+      const doneEvents = events.filter((e) => e.type === 'done');
+      expect(doneEvents).toHaveLength(1);
+      expect((doneEvents[0].data as { summary: string }).summary).toContain('Key point 1');
+      expect(controller.getStatus()).toBe('completed');
+    });
+
+    it('rejects internal restricted browser pages with descriptive error', async () => {
+      vi.stubGlobal('chrome', {
+        runtime: { lastError: undefined },
+        tabs: {
+          get: vi.fn().mockResolvedValue({ id: 1, url: 'chrome://settings' }),
+        },
+      });
+
+      const controller = new AgentController({
+        llmConfig: { provider: 'omniroute', model: 'free' },
+      });
+
+      const events: Array<{ type: string; data?: unknown }> = [];
+      const result = await controller.answer(1, 'What is in settings?', (e) => events.push(e));
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Cannot inspect internal browser page');
+      expect(controller.getStatus()).toBe('failed');
+
+      vi.unstubAllGlobals();
+    });
   });
 });
