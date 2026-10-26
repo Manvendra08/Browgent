@@ -7,7 +7,7 @@ import { ToolRegistry } from './tools/registry';
 import { McpClient } from './mcp/client';
 import { Skill } from './skills/types';
 import { AttachedFile, formatAttachedFilesForPrompt } from './files/parser';
-import { detachDebugger } from './cdp';
+import { detachDebugger, enableDialogHandling, DialogDisposer } from './cdp';
 import { isRestrictedUrl, RESTRICTED_URL_HINT } from './restricted';
 
 export type AgentStatus = 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'stopped';
@@ -190,6 +190,7 @@ export class AgentController {
   private currentTabId: number = 0;
   private onTabCreatedListener: ((tab: chrome.tabs.Tab) => void) | null = null;
   private onTabRemovedListener: ((tabId: number) => void) | null = null;
+  private dialogDisposers: Map<number, DialogDisposer> = new Map();
   private readonly pageNonce: string = Math.random().toString(36).slice(2, 12);
   private runAbortController: AbortController | null = null;
 
@@ -284,6 +285,39 @@ export class AgentController {
     this.currentTabId = tabId;
     this.runAbortController = new AbortController();
 
+    const attachDialogHandler = async (tId: number) => {
+      if (this.dialogDisposers.has(tId)) return;
+      try {
+        const disposer = await enableDialogHandling(tId, (dialog) => {
+          const autoAction =
+            dialog.type === 'alert' || dialog.type === 'beforeunload' ? 'accepted' : 'dismissed';
+          const summary = `Page showed a ${dialog.type} dialog: "${dialog.message}" → ${autoAction} automatically`;
+          console.log(`[Browgent Agent] ${summary}`);
+          this.history.push({
+            step: this.currentStep,
+            thought: 'Browser native JavaScript dialog was triggered by the page.',
+            action: { action: 'wait', seconds: 1 },
+            result: summary,
+            success: true,
+            timestamp: Date.now(),
+          });
+          onProgress({
+            type: 'action_result',
+            data: {
+              step: this.currentStep,
+              success: true,
+              result: summary,
+            },
+          });
+        });
+        this.dialogDisposers.set(tId, disposer);
+      } catch (err: unknown) {
+        console.warn(`[Browgent Agent] Could not enable dialog handling on tab ${tId}:`, err);
+      }
+    };
+
+    await attachDialogHandler(tabId);
+
     if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onCreated) {
       this.onTabCreatedListener = (tab: chrome.tabs.Tab) => {
         if (tab.id && (tab.openerTabId === this.currentTabId || tab.openerTabId === this.rootTabId)) {
@@ -291,6 +325,7 @@ export class AgentController {
           this.currentTabId = tab.id;
           if (tab.url && !isRestrictedUrl(tab.url)) {
             this.ensureContentScript(tab.id, tab.url).catch(() => {});
+            attachDialogHandler(tab.id).catch(() => {});
           }
         }
       };
@@ -1120,6 +1155,15 @@ ${domState.formattedPrompt}${textBlock}
   }
 
   private async cleanup(tabId: number): Promise<void> {
+    for (const disposer of this.dialogDisposers.values()) {
+      try {
+        disposer();
+      } catch {
+        // ignore
+      }
+    }
+    this.dialogDisposers.clear();
+
     if (typeof chrome !== 'undefined' && chrome.tabs) {
       if (this.onTabCreatedListener && chrome.tabs.onCreated) {
         chrome.tabs.onCreated.removeListener(this.onTabCreatedListener);

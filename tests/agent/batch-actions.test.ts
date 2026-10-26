@@ -49,8 +49,11 @@ function stubChrome() {
     debugger: {
       attach: vi.fn(),
       detach: vi.fn(),
-      sendCommand: vi.fn(),
+      sendCommand: vi.fn((_target, _method, _params, cb) => {
+        if (typeof cb === 'function') cb({});
+      }),
       onDetach: { addListener: vi.fn() },
+      onEvent: { addListener: vi.fn(), removeListener: vi.fn() },
     },
   });
 

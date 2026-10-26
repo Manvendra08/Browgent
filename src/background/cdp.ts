@@ -202,3 +202,55 @@ export async function navigateToUrl(tabId: number, url: string): Promise<void> {
     await chrome.tabs.update(tabId, { url });
   }
 }
+
+export interface DialogInfo {
+  type: 'alert' | 'confirm' | 'prompt' | 'beforeunload';
+  message: string;
+}
+
+export type DialogDisposer = () => void;
+
+export async function enableDialogHandling(
+  tabId: number,
+  onDialog: (info: DialogInfo) => void,
+): Promise<DialogDisposer> {
+  await attachDebugger(tabId);
+  await sendCdpCommand(tabId, 'Page.enable');
+
+  const onEventListener = (
+    source: chrome.debugger.Debuggee,
+    method: string,
+    params?: unknown,
+  ) => {
+    if (source.tabId !== tabId) return;
+
+    if (method === 'Page.javascriptDialogOpening') {
+      const p = (params || {}) as { type?: string; message?: string };
+      const rawType = (p.type || 'alert').toLowerCase();
+      const dialogType: DialogInfo['type'] =
+        rawType === 'confirm' || rawType === 'prompt' || rawType === 'beforeunload'
+          ? rawType
+          : 'alert';
+      const message = p.message || '';
+
+      const accept = dialogType === 'alert' || dialogType === 'beforeunload';
+
+      sendCdpCommand(tabId, 'Page.handleJavaScriptDialog', { accept }).catch((err: unknown) => {
+        console.warn(`[Browgent CDP] Failed to handle dialog on tab ${tabId}:`, err);
+      });
+
+      onDialog({ type: dialogType, message });
+    }
+  };
+
+  if (typeof chrome !== 'undefined' && chrome.debugger && chrome.debugger.onEvent) {
+    chrome.debugger.onEvent.addListener(onEventListener);
+  }
+
+  return () => {
+    if (typeof chrome !== 'undefined' && chrome.debugger && chrome.debugger.onEvent) {
+      chrome.debugger.onEvent.removeListener(onEventListener);
+    }
+  };
+}
+
