@@ -38,6 +38,21 @@ Fill all input forms meticulously without missing required fields.`;
     expect(dataExtractor?.systemPrompt).toContain('scroll');
   });
 
+  it('ships LinkedIn skills that stop short of sending, posting or applying', () => {
+    const linkedin = BUILTIN_SKILLS.filter((s) => s.id.startsWith('linkedin-'));
+    expect(linkedin.map((s) => s.id)).toEqual([
+      'linkedin-job-scout',
+      'linkedin-people-research',
+      'linkedin-post-drafter',
+      'linkedin-inbox-assistant',
+    ]);
+    linkedin.forEach((s) => {
+      expect(s.isBuiltIn).toBe(true);
+      expect(s.isActive).toBe(false);
+      expect(s.systemPrompt).toMatch(/never/i);
+    });
+  });
+
   it('has unique ids across all built-in skills', () => {
     const ids = BUILTIN_SKILLS.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
