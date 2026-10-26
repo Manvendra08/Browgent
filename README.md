@@ -6,7 +6,15 @@ Browgent is a client-side autonomous web agent with **no backend and no relay se
 
 ## Key Features
 
-- **Direct In-Browser CDP Automation**: Low-level mouse clicks (`Input.dispatchMouseEvent`) and keystrokes (`Input.dispatchKeyEvent`) through `chrome.debugger`.
+- **Conversational Chat Threads & Follow-ups**: Retains prior conversation turns as untrusted context, enabling fluid iterative prompting (e.g. "now open the second result", "format that as a table"). Chats are saved locally in `chrome.storage.local` (capped at 20 threads / 30 turns per thread) with typed credentials automatically redacted.
+- **Ask vs Agent Execution Modes**:
+  - **Ask Mode**: Fast 1-shot Markdown answers directly from page text, viewport screenshots, attached files, and prior turns without autonomous navigation or action loops.
+  - **Agent Mode**: Full multi-step CDP automation (click, type, scroll, navigate, wait) with chained action batching and verify-before-finish auditor checks.
+- **Alt+B Shortcut & Selection Context Menu**:
+  - Press `Alt+B` anywhere in Chrome to open or toggle the side panel.
+  - Select text on any webpage, right-click, and pick **Ask Browgent about "%s"** to immediately open the sidebar in Ask mode with `Explain: "<selection>"`.
+- **Rendered Markdown & GFM Tables**: Clean rendered Markdown output with GitHub Flavored Markdown tables, styled code blocks, and external link safety.
+- **Direct In-Browser CDP Automation**: Low-level mouse clicks (`Input.dispatchMouseEvent`) and keystrokes (`Input.dispatchKeyEvent`) through `chrome.debugger`. Top-frame targeting prevents iframes from hijacking actions, and native alert/confirm/prompt dialogs are handled automatically without hanging.
 - **Token-Efficient DOM Perception**: In-page semantic extractor tags interactive elements with stable numeric ids (`[7]`, `[8]`, ...) and formats the page state into a compact prompt payload (element text is truncated to 100 characters per element). Ids are monotonic per document and never reused, so an id always refers to the same element for the life of the page.
 - **Unified Multi-Provider LLM Engine**:
   - **OmniRoute / Local Routers**: Built-in preset (`http://localhost:20128/v1/chat/completions`) with model alias resolution (`free`, `kilo`, `anti`, `gp`, `glm`, `bigp`).
@@ -59,7 +67,7 @@ npm run package
 5. Click the extension puzzle icon in Chrome and pin **Browgent**.
 6. Click the Browgent icon or open the Chrome Side Panel to access the agent console.
 
-Browgent requires **Chrome 114 or newer** (`chrome.sidePanel`).
+Browgent requires **Chrome 116 or newer** (`chrome.sidePanel.open` and Manifest V3 side panel API).
 
 ### 3. Development Scripts
 

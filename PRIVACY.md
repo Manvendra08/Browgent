@@ -50,15 +50,22 @@ Because page content is sent to an LLM, **treat the endpoint you configure as a 
 
 ## 4. Storage and retention
 
-Browgent persists only the following values in `chrome.storage.local` (local to your browser profile, not synced to a Google account):
+Browgent persists the following values in `chrome.storage.local` (local to your browser profile, not synced to a Google account):
 
 - `browgent_config` — provider selection, endpoint URL, model name, API key.
 - `browgent_max_steps` — the maximum step budget.
 - `browgent_mcp_endpoint` — the optional MCP server URL.
 - `browgent_skills` — the active/disabled state of built-in skills and any custom skills you import.
 - `browgent_theme` — your light/dark theme preference.
+- `browgent_mode` — your last active mode preference (`ask` or `agent`).
+- `browgent_threads` — conversational chat history (user prompts, final Markdown answers, and step execution metadata).
+  - **Typed text redaction:** Any text typed into input elements by the agent is automatically replaced with `[N chars redacted]` before persistence.
+  - **No raw media:** Viewport screenshots, DOM trees, and attached file contents are never written to storage.
+  - **Automatic bounds:** Capped at the 20 most recent threads and at most 30 turns per thread.
+  - **User control:** Individual threads can be deleted or all history cleared at any time from the Chat History drawer.
 
-**No run history is stored.** Task steps, agent reasoning, page content, and attached file contents are held in memory only for the duration of a run and are discarded when the side panel or background service worker is closed or reloaded. No page content, goal text, or attachment is written to disk by the extension.
+Transient session storage (`chrome.storage.session`):
+- `browgent_pending_prompt` — temporary memory holding selected text when launching via the right-click "Ask Browgent about..." context menu. It is immediately consumed and deleted as soon as the side panel opens.
 
 Removing the extension (or clearing extension storage) deletes all of the above.
 
@@ -82,12 +89,13 @@ Redaction reduces the risk of leaking a credential to the LLM; it is not a guara
 
 | Permission / access | Why it is needed |
 | --- | --- |
-| `sidePanel` | Hosts the Browgent operator console in Chrome's side panel. Requires Chrome 114 or newer. |
+| `sidePanel` | Hosts the Browgent operator console in Chrome's side panel. Requires Chrome 116 or newer. |
 | `activeTab` | Reads the URL and title of the active tab for the tab bar and for task context. |
 | `tabs` | Reads tab URLs, titles, and load status, and navigates the tab during a task. |
+| `contextMenus` | Adds a right-click selection option ("Ask Browgent about '%s'") to launch the sidebar with prefilled queries. |
 | `debugger` | Drives real mouse clicks, keystrokes, and scrolling through the Chrome DevTools Protocol, so the agent interacts with the page like a human rather than through synthetic DOM events. |
 | `scripting` | Injects the perception content script into the tab so the agent can read interactive elements and overlay numeric badges. |
-| `storage` | Stores your settings, API key, skills, and theme locally. |
+| `storage` | Stores your settings, API key, skills, theme, and chat threads locally. |
 | Host access: `<all_urls>` | Lets the agent read and interact with the pages you ask it to automate. It also permits requests to the local HTTP endpoints you configure (for example `http://localhost:20128`), which host-based permission rules would otherwise block. |
 
 The extension also refuses to operate on internal browser pages (`chrome://`, `chrome-extension://`, the Chrome Web Store), on `file://`, `blob:`, and `data:` URLs, and on link-local metadata addresses such as `169.254.x.x`.
