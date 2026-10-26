@@ -3,15 +3,24 @@
   "name": "Browgent - Autonomous AI Browser Agent",
   "version": "0.4.0",
   "description": "Autonomous Native AI Browser Agent with local LLM, OmniRoute, Skills, Files, and CDP support",
-  "minimum_chrome_version": "114",
+  "minimum_chrome_version": "116",
   "permissions": [
     "sidePanel",
     "activeTab",
+    "contextMenus",
     "debugger",
     "scripting",
     "storage",
     "tabs"
   ],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+B"
+      },
+      "description": "Open Browgent Sidebar"
+    }
+  },
   "host_permissions": [
     "<all_urls>"
   ],

@@ -307,6 +307,46 @@ export const App: React.FC = () => {
     };
   }, [getOrCreatePort]);
 
+  // Check and consume any pending prompt from context menu (session storage)
+  const checkPendingPrompt = React.useCallback(async () => {
+    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.session) {
+      return;
+    }
+    try {
+      const res = await chrome.storage.session.get(['browgent_pending_prompt']);
+      const pending = res?.browgent_pending_prompt as { text: string; mode?: TurnMode } | undefined;
+      if (pending && pending.text) {
+        await chrome.storage.session.remove(['browgent_pending_prompt']);
+        setActiveThreadId(null);
+        activeTurnIdRef.current = null;
+        setStatus('idle');
+        setMode(pending.mode || 'ask');
+        setGoal(`Explain: "${pending.text}"`);
+      }
+    } catch {
+      // Session storage not available or error
+    }
+  }, []);
+
+  useEffect(() => {
+    checkPendingPrompt();
+
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+      const listener = (
+        changes: { [key: string]: chrome.storage.StorageChange },
+        areaName: string,
+      ) => {
+        if (areaName === 'session' && changes['browgent_pending_prompt']?.newValue) {
+          checkPendingPrompt();
+        }
+      };
+      chrome.storage.onChanged.addListener(listener);
+      return () => {
+        chrome.storage.onChanged.removeListener(listener);
+      };
+    }
+  }, [checkPendingPrompt]);
+
   // Load saved configuration, skills, mode, and threads on mount
   useEffect(() => {
     loadStoredSkills().then(setSkills);

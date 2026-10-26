@@ -23,10 +23,14 @@ vi.mock('../../src/background/agent', () => ({
 
 let connectListener: (port: FakePort) => void;
 let installedListener: () => void;
+let contextMenuClickListener: ((info: { menuItemId: string; selectionText?: string }, tab?: { windowId: number }) => void) | null = null;
 let queryMock: ReturnType<typeof vi.fn>;
 let updateMock: ReturnType<typeof vi.fn>;
 let getMock: ReturnType<typeof vi.fn>;
 let setPanelBehavior: ReturnType<typeof vi.fn>;
+let sidePanelOpen: ReturnType<typeof vi.fn>;
+let contextMenusCreate: ReturnType<typeof vi.fn>;
+let sessionStorageSet: ReturnType<typeof vi.fn>;
 
 function makePort(name = 'browgent-sidepanel'): FakePort {
   const port = {
@@ -73,6 +77,10 @@ beforeEach(async () => {
     status: 'complete',
   }));
   setPanelBehavior = vi.fn().mockResolvedValue(undefined);
+  sidePanelOpen = vi.fn().mockResolvedValue(undefined);
+  contextMenusCreate = vi.fn();
+  sessionStorageSet = vi.fn().mockResolvedValue(undefined);
+  contextMenuClickListener = null;
 
   (globalThis as unknown as { chrome: unknown }).chrome = {
     runtime: {
@@ -84,7 +92,20 @@ beforeEach(async () => {
       update: updateMock,
       get: getMock,
     },
-    sidePanel: { setPanelBehavior },
+    sidePanel: { setPanelBehavior, open: sidePanelOpen },
+    contextMenus: {
+      create: contextMenusCreate,
+      onClicked: {
+        addListener: (cb: (info: { menuItemId: string; selectionText?: string }, tab?: { windowId: number }) => void) => {
+          contextMenuClickListener = cb;
+        },
+      },
+    },
+    storage: {
+      session: {
+        set: sessionStorageSet,
+      },
+    },
   };
 
   await loadModule();
@@ -99,6 +120,29 @@ describe('background service worker', () => {
   it('opens the side panel on action click when installed', () => {
     installedListener();
     expect(setPanelBehavior).toHaveBeenCalledWith({ openPanelOnActionClick: true });
+    expect(contextMenusCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'browgent-ask-selection',
+        title: 'Ask Browgent about "%s"',
+        contexts: ['selection'],
+      }),
+    );
+  });
+
+  it('handles context menu click by opening side panel and writing pending prompt to session storage', async () => {
+    expect(contextMenuClickListener).toBeDefined();
+    await contextMenuClickListener?.(
+      { menuItemId: 'browgent-ask-selection', selectionText: 'Selected paragraph text' },
+      { windowId: 42 },
+    );
+
+    expect(sidePanelOpen).toHaveBeenCalledWith({ windowId: 42 });
+    expect(sessionStorageSet).toHaveBeenCalledWith({
+      browgent_pending_prompt: {
+        text: 'Selected paragraph text',
+        mode: 'ask',
+      },
+    });
   });
 
   it('ignores ports that are not the Browgent side panel', () => {

@@ -19,6 +19,8 @@ const mockPort = {
 
 // In-memory fake storage
 let fakeStorage: Record<string, unknown> = {};
+let fakeSessionStorage: Record<string, unknown> = {};
+let storageChangeListeners: Array<(changes: Record<string, unknown>, areaName: string) => void> = [];
 
 vi.stubGlobal('chrome', {
   runtime: {
@@ -50,6 +52,35 @@ vi.stubGlobal('chrome', {
         return Promise.resolve();
       }),
     },
+    session: {
+      get: vi.fn(async (keys) => {
+        const result: Record<string, unknown> = {};
+        const keyList = Array.isArray(keys) ? keys : [keys];
+        for (const k of keyList) {
+          if (fakeSessionStorage[k] !== undefined) {
+            result[k] = fakeSessionStorage[k];
+          }
+        }
+        return result;
+      }),
+      set: vi.fn(async (items) => {
+        fakeSessionStorage = { ...fakeSessionStorage, ...items };
+      }),
+      remove: vi.fn(async (keys) => {
+        const keyList = Array.isArray(keys) ? keys : [keys];
+        for (const k of keyList) {
+          delete fakeSessionStorage[k];
+        }
+      }),
+    },
+    onChanged: {
+      addListener: vi.fn((listener) => {
+        storageChangeListeners.push(listener);
+      }),
+      removeListener: vi.fn((listener) => {
+        storageChangeListeners = storageChangeListeners.filter((l) => l !== listener);
+      }),
+    },
   },
   tabs: {
     query: vi.fn().mockResolvedValue([
@@ -69,6 +100,8 @@ describe('Sidepanel App Conversational Flow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fakeStorage = {};
+    fakeSessionStorage = {};
+    storageChangeListeners = [];
     portMessageListener = null;
   });
 
@@ -243,5 +276,23 @@ describe('Sidepanel App Conversational Flow', () => {
     // Should display Thread 1 again
     expect(screen.getByText('Thread One Query')).toBeDefined();
     expect(screen.queryByText('Thread Two Query')).toBeNull();
+  });
+
+  it('consumes browgent_pending_prompt from session storage and prefills Explain prompt in Ask mode', async () => {
+    fakeSessionStorage['browgent_pending_prompt'] = {
+      text: 'Quantum computing superposition',
+      mode: 'ask',
+    };
+
+    render(<App />);
+
+    await waitFor(() => {
+      const textarea = screen.getByPlaceholderText(
+        /Ask a question about this page/i,
+      ) as HTMLTextAreaElement;
+      expect(textarea.value).toBe('Explain: "Quantum computing superposition"');
+    });
+
+    expect(fakeSessionStorage['browgent_pending_prompt']).toBeUndefined();
   });
 });

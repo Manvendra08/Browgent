@@ -65,7 +65,37 @@ chrome.runtime.onInstalled.addListener(() => {
   if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
   }
+  if (chrome.contextMenus && typeof chrome.contextMenus.create === 'function') {
+    chrome.contextMenus.create({
+      id: 'browgent-ask-selection',
+      title: 'Ask Browgent about "%s"',
+      contexts: ['selection'],
+    });
+  }
 });
+
+if (typeof chrome !== 'undefined' && chrome.contextMenus && chrome.contextMenus.onClicked) {
+  chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+    if (info.menuItemId === 'browgent-ask-selection' && info.selectionText) {
+      const windowId = tab?.windowId;
+      if (typeof windowId === 'number' && chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
+        try {
+          await chrome.sidePanel.open({ windowId });
+        } catch (err) {
+          console.warn('[Browgent] Failed to open side panel:', err);
+        }
+      }
+      if (chrome.storage && chrome.storage.session) {
+        await chrome.storage.session.set({
+          browgent_pending_prompt: {
+            text: info.selectionText,
+            mode: 'ask',
+          },
+        });
+      }
+    }
+  });
+}
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === 'browgent-sidepanel') {
