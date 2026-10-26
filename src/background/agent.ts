@@ -1455,12 +1455,46 @@ ${domState.formattedPrompt}${textBlock}
       }
     }
 
-    if (lastAction?.action === 'click') {
-      // Allow 600ms for modal transitions, step progression, and network AJAX (e.g. LinkedIn Easy Apply "Next", Google Flights queries)
-      await new Promise((r) => setTimeout(r, 600));
-    } else {
-      // Fast adaptive settle: 250ms (replaces hardcoded 1200ms delay)
-      await new Promise((r) => setTimeout(r, 250));
+    // Event-driven DOM quiescence: ask content script to wait until mutations settle (100ms quiet)
+    let quietSuccess = false;
+    if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.sendMessage === 'function') {
+      try {
+        const quietPromise = new Promise<{ success?: boolean; waitedMs?: number }>((resolve) => {
+          chrome.tabs.sendMessage(
+            tabId,
+            {
+              type: 'WAIT_FOR_QUIET',
+              quietMs: 100,
+              maxTimeoutMs: lastAction?.action === 'click' ? 500 : 250,
+            },
+            (response) => {
+              if (chrome.runtime?.lastError || !response) {
+                resolve({ success: false });
+              } else {
+                resolve(response);
+              }
+            },
+          );
+        });
+
+        const timeoutPromise = new Promise<{ success: boolean }>((resolve) =>
+          setTimeout(() => resolve({ success: false }), lastAction?.action === 'click' ? 550 : 300),
+        );
+
+        const res = await Promise.race([quietPromise, timeoutPromise]);
+        quietSuccess = !!res.success;
+      } catch {
+        quietSuccess = false;
+      }
+    }
+
+    if (!quietSuccess) {
+      if (lastAction?.action === 'click') {
+        // Fallback for navigation or detached pages: allow 400ms for modal transitions and network AJAX
+        await new Promise((r) => setTimeout(r, 400));
+      } else {
+        await new Promise((r) => setTimeout(r, 150));
+      }
     }
   }
 

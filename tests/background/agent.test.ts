@@ -446,5 +446,46 @@ describe('Agent Controller', () => {
         vi.unstubAllGlobals();
       });
     });
+
+    describe('stabilizePage event-driven quiescence', () => {
+      it('sends WAIT_FOR_QUIET to content script and proceeds when resolved', async () => {
+        const prevEnv = process.env.NODE_ENV;
+        // Temporarily mutate test env to execute real stabilizePage branch
+        // @ts-expect-error mutating test env for targeted test
+        process.env.NODE_ENV = 'production';
+
+        const sendMessageMock = vi.fn().mockImplementation((_tabId, msg, cb) => {
+          if (msg.type === 'WAIT_FOR_QUIET') {
+            cb({ success: true, waitedMs: 85 });
+          } else {
+            cb({ success: true });
+          }
+        });
+
+        vi.stubGlobal('chrome', {
+          runtime: { lastError: undefined },
+          tabs: {
+            get: vi.fn().mockResolvedValue({ id: 1, status: 'complete' }),
+            sendMessage: sendMessageMock,
+          },
+        });
+
+        const controller = new AgentController({
+          llmConfig: { provider: 'omniroute', model: 'free' },
+        });
+
+        // @ts-expect-error accessing private method for targeted test
+        await controller.stabilizePage(1, { action: 'click', elementId: 5 });
+
+        expect(sendMessageMock).toHaveBeenCalledWith(
+          1,
+          expect.objectContaining({ type: 'WAIT_FOR_QUIET', quietMs: 100 }),
+          expect.any(Function),
+        );
+
+        process.env.NODE_ENV = prevEnv;
+        vi.unstubAllGlobals();
+      });
+    });
   });
 });

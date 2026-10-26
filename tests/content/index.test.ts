@@ -299,4 +299,20 @@ describe('Content script message protocol', () => {
 
     scrollSpy.mockRestore();
   });
+
+  it('handles WAIT_FOR_QUIET and resolves after mutations settle', async () => {
+    const waitPromise = send({
+      type: 'WAIT_FOR_QUIET',
+      quietMs: 30,
+      maxTimeoutMs: 150,
+    });
+
+    // Cause a DOM mutation mid-wait
+    const p = document.createElement('p');
+    p.textContent = 'new content';
+    document.body.appendChild(p);
+
+    const response = await waitPromise;
+    expect(response.success).toBe(true);
+  });
 });

@@ -419,5 +419,62 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'WAIT_FOR_QUIET') {
+    const quietMs = typeof message.quietMs === 'number' ? message.quietMs : 100;
+    const maxTimeoutMs = typeof message.maxTimeoutMs === 'number' ? message.maxTimeoutMs : 500;
+    waitForDOMQuiet(quietMs, maxTimeoutMs)
+      .then((waitedMs) => sendResponse({ success: true, waitedMs }))
+      .catch((err: unknown) => sendResponse({ success: false, error: String(err) }));
+    return true;
+  }
+
   return false;
 });
+
+export function waitForDOMQuiet(quietMs = 100, maxTimeoutMs = 500): Promise<number> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || typeof MutationObserver === 'undefined' || !document?.body) {
+      resolve(0);
+      return;
+    }
+
+    const start = performance.now();
+    let quietTimer: ReturnType<typeof setTimeout> | null = null;
+    let maxTimer: ReturnType<typeof setTimeout> | null = null;
+    let observer: MutationObserver | null = null;
+
+    const cleanup = () => {
+      if (quietTimer) clearTimeout(quietTimer);
+      if (maxTimer) clearTimeout(maxTimer);
+      if (observer) {
+        observer.disconnect();
+        observer = null;
+      }
+    };
+
+    const done = () => {
+      cleanup();
+      resolve(Math.round(performance.now() - start));
+    };
+
+    observer = new MutationObserver(() => {
+      if (quietTimer) clearTimeout(quietTimer);
+      quietTimer = setTimeout(done, quietMs);
+    });
+
+    try {
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        characterData: true,
+      });
+    } catch {
+      done();
+      return;
+    }
+
+    quietTimer = setTimeout(done, quietMs);
+    maxTimer = setTimeout(done, maxTimeoutMs);
+  });
+}
