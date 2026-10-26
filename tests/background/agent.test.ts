@@ -187,4 +187,56 @@ describe('Agent Controller', () => {
 
     vi.unstubAllGlobals();
   });
+
+  it('includes prior conversation inside the nonce-tagged block when provided', async () => {
+    let capturedPrompt: string = '';
+    mockedQueryLLM.mockImplementationOnce((_config, messages) => {
+      capturedPrompt = messages[1].content;
+      return Promise.resolve({
+        thought: 'Done',
+        action: { action: 'finish', summary: 'Follow-up processed' },
+      });
+    });
+
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 1,
+      conversation: [
+        { prompt: 'Find flights from Pune to Lucknow', result: 'Found 3 flights starting at ₹16,428' },
+        { prompt: 'Which is fastest?', result: 'IndiGo nonstop 1h 50m' },
+      ],
+    });
+
+    await controller.run(1, 'Book the fastest one', () => {});
+
+    expect(capturedPrompt).toContain('USER GOAL: "Book the fastest one"');
+    expect(capturedPrompt).toContain('<prior_conversation nonce=');
+    expect(capturedPrompt).toContain('Find flights from Pune to Lucknow');
+    expect(capturedPrompt).toContain('Found 3 flights starting at ₹16,428');
+    expect(capturedPrompt).toContain('Which is fastest?');
+    expect(capturedPrompt).toContain('IndiGo nonstop 1h 50m');
+    expect(capturedPrompt).toContain('</prior_conversation nonce=');
+  });
+
+  it('omits the prior conversation block when conversation is empty', async () => {
+    let capturedPrompt: string = '';
+    mockedQueryLLM.mockImplementationOnce((_config, messages) => {
+      capturedPrompt = messages[1].content;
+      return Promise.resolve({
+        thought: 'Done',
+        action: { action: 'finish', summary: 'Clean run' },
+      });
+    });
+
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 1,
+      conversation: [],
+    });
+
+    await controller.run(1, 'Initial query', () => {});
+
+    expect(capturedPrompt).toContain('USER GOAL: "Initial query"');
+    expect(capturedPrompt).not.toContain('<prior_conversation');
+  });
 });

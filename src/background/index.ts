@@ -79,7 +79,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
     port.onMessage.addListener(async (msg) => {
       if (msg.type === 'START_AGENT') {
-        const { goal, llmConfig, maxSteps, skills, files, mcpEndpoint, showOverlay } =
+        const { goal, llmConfig, maxSteps, skills, files, mcpEndpoint, showOverlay, conversation } =
           msg.payload as {
             goal: string;
             llmConfig: LLMConfig;
@@ -88,6 +88,7 @@ chrome.runtime.onConnect.addListener((port) => {
             files?: AttachedFile[];
             mcpEndpoint?: string;
             showOverlay?: boolean;
+            conversation?: { prompt: string; result: string }[];
           };
 
         // Find the active tab: prefer the last focused window (the one the
@@ -157,6 +158,7 @@ chrome.runtime.onConnect.addListener((port) => {
           files: files || [],
           mcpEndpoint,
           showOverlay: showOverlay ?? false,
+          conversation: conversation || [],
         });
 
         port.postMessage({

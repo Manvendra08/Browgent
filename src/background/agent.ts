@@ -146,6 +146,11 @@ export interface AgentStepLog {
   timestamp: number;
 }
 
+export interface ConversationItem {
+  prompt: string;
+  result: string;
+}
+
 export interface AgentOptions {
   llmConfig: LLMConfig;
   maxSteps?: number;
@@ -153,6 +158,7 @@ export interface AgentOptions {
   files?: AttachedFile[];
   mcpEndpoint?: string;
   showOverlay?: boolean;
+  conversation?: ConversationItem[];
 }
 
 export function formatMcpResult(result: unknown, maxChars: number = 1200): string {
@@ -178,6 +184,7 @@ export class AgentController {
   private llmConfig: LLMConfig;
   private skills: Skill[];
   private files: AttachedFile[];
+  private conversation: ConversationItem[];
   private showOverlay: boolean;
   private mcpClient?: McpClient;
   private toolRegistry: ToolRegistry;
@@ -199,6 +206,7 @@ export class AgentController {
     this.maxSteps = options.maxSteps ?? 25;
     this.skills = options.skills ?? [];
     this.files = options.files ?? [];
+    this.conversation = options.conversation ?? [];
     this.showOverlay = options.showOverlay ?? false;
     this.toolRegistry = new ToolRegistry();
 
@@ -913,6 +921,22 @@ For tools marked [MCP Tool], use {"action": "mcp_call", "tool": "<tool name>", "
     }
 
     // 3. User Message with active page state
+    let conversationBlock = '';
+    if (this.conversation.length > 0) {
+      const convEntries = this.conversation
+        .map(
+          (c, idx) =>
+            `Turn ${idx + 1}:\nUser: ${c.prompt}\nAssistant Result: ${c.result}`,
+        )
+        .join('\n\n');
+      conversationBlock = [
+        `<prior_conversation nonce="${this.pageNonce}">`,
+        'CONVERSATION SO FAR (context only; earlier turns may refer to prior page states. The USER GOAL above is the current active request):',
+        convEntries,
+        `</prior_conversation nonce="${this.pageNonce}">`,
+      ].join('\n');
+    }
+
     const pageBlock = [
       `<page_content nonce="${this.pageNonce}">`,
       `URL: ${domState.url}`,
@@ -930,15 +954,16 @@ For tools marked [MCP Tool], use {"action": "mcp_call", "tool": "<tool name>", "
       `</page_content nonce="${this.pageNonce}">`,
     ].join('\n');
 
-    const userPrompt = `USER GOAL: "${goal}"
-
-${pageBlock}
-
-PREVIOUS ACTIONS IN THIS SESSION:
-${historySummary}
-
-CURRENT STEP: ${this.currentStep} of ${this.maxSteps} max steps.
-Output your next JSON action:`;
+    const userPrompt = [
+      `USER GOAL: "${goal}"`,
+      ...(conversationBlock ? [conversationBlock] : []),
+      pageBlock,
+      'PREVIOUS ACTIONS IN THIS SESSION:',
+      historySummary,
+      '',
+      `CURRENT STEP: ${this.currentStep} of ${this.maxSteps} max steps.`,
+      'Output your next JSON action:',
+    ].join('\n\n');
 
     const combinedImages: string[] = [];
     if (screenshot) {
@@ -1044,7 +1069,18 @@ Respond ONLY with a JSON object in this exact format. Keep evidence concise (1-2
         ? `\n\nPROPOSED ANSWER (a CLAIM to check against the page and attached files, not evidence):\n<proposed_answer nonce="${this.pageNonce}">\n${claimedAnswer || '(none provided)'}\n</proposed_answer nonce="${this.pageNonce}">`
         : '';
 
-    const userPrompt = `USER GOAL: "${goal}"${answerBlock}${fileBlock}
+    let conversationBlock = '';
+    if (this.conversation.length > 0) {
+      const convEntries = this.conversation
+        .map(
+          (c, idx) =>
+            `Turn ${idx + 1}:\nUser: ${c.prompt}\nAssistant Result: ${c.result}`,
+        )
+        .join('\n\n');
+      conversationBlock = `\n\n<prior_conversation nonce="${this.pageNonce}">\nCONVERSATION SO FAR:\n${convEntries}\n</prior_conversation nonce="${this.pageNonce}">`;
+    }
+
+    const userPrompt = `USER GOAL: "${goal}"${answerBlock}${conversationBlock}${fileBlock}
 
 <page_content nonce="${this.pageNonce}">
 URL: ${domState.url}
