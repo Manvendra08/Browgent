@@ -1,15 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Bot, Trash2, Sun, Moon } from 'lucide-react';
+import { Settings, Bot, Sun, Moon, Plus, Clock } from 'lucide-react';
 import { LLMConfig } from '../background/llm/types';
 import { Skill } from '../background/skills/types';
 import { BUILTIN_SKILLS, loadStoredSkills, saveStoredSkills } from '../background/skills/manager';
 import { AttachedFile } from '../background/files/parser';
 import { GoalInput } from './components/GoalInput';
-import { StepFeed, FeedItem } from './components/StepFeed';
+import { ChatThread } from './components/ChatThread';
+import { ThreadList } from './components/ThreadList';
 import { SkillSelector } from './components/SkillSelector';
 import { FileAttachment } from './components/FileAttachment';
 import { ActiveTabBar, type ActiveTabInfo } from './components/ActiveTabBar';
 import { SettingsModal } from './components/SettingsModal';
+import {
+  Thread,
+  Turn,
+  TurnMode,
+  loadThreads,
+  saveThreads,
+  applyAgentEvent,
+  toConversation,
+} from './threads';
 import {
   DEFAULT_LLM_CONFIG,
   seedProviderConfigs,
@@ -36,12 +46,15 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 export const App: React.FC = () => {
   const [goal, setGoal] = useState<string>('');
+  const [mode, setMode] = useState<TurnMode>('agent');
   const [status, setStatus] = useState<'idle' | 'running' | 'completed' | 'failed' | 'stopped'>(
     'idle',
   );
-  const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
-  const [finalSummary, setFinalSummary] = useState<string>('');
-  const [errorMessage, setErrorMessage] = useState<string>('');
+
+  const [threads, setThreads] = useState<Thread[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const activeTurnIdRef = useRef<string | null>(null);
+  const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
 
   const [skills, setSkills] = useState<Skill[]>(BUILTIN_SKILLS);
   const [files, setFiles] = useState<AttachedFile[]>([]);
@@ -59,6 +72,18 @@ export const App: React.FC = () => {
   const [agentTab, setAgentTab] = useState<ActiveTabInfo | null>(null);
 
   const portRef = useRef<chrome.runtime.Port | null>(null);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounced save for threads
+  useEffect(() => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      saveThreads(threads);
+    }, 300);
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [threads]);
 
   // Load theme preference
   useEffect(() => {
@@ -105,7 +130,7 @@ export const App: React.FC = () => {
         favIconUrl: t.favIconUrl,
       });
     } catch {
-      // Ignore transient query failures (e.g. window closing)
+      // Ignore transient query failures
     }
   }, []);
 
@@ -178,81 +203,86 @@ export const App: React.FC = () => {
 
         if (msg.type === 'AGENT_EVENT') {
           const event = msg.event;
-          if (event.type === 'step') {
-            // create new feed item if not present
-            const stepNum = event.data.step;
-            setFeedItems((prev) => [
-              ...prev,
-              {
-                id: `step-${stepNum}-${Date.now()}`,
-                step: stepNum,
-                status: 'running',
-                timestamp: Date.now(),
-              },
-            ]);
-          } else if (event.type === 'thought') {
-            setFeedItems((prev) => {
-              const last = prev[prev.length - 1];
-              if (!last) return prev;
-              return [...prev.slice(0, -1), { ...last, thought: event.data.thought }];
-            });
-          } else if (event.type === 'action') {
-            const { action, subIndex, total } = event.data;
-            setFeedItems((prev) => {
-              if (typeof subIndex === 'number' && subIndex > 0) {
-                return [
-                  ...prev,
-                  {
-                    id: `step-${event.data.step}-sub-${subIndex}-${Date.now()}`,
-                    step: event.data.step,
-                    thought: `Chained action ${subIndex + 1}/${total || subIndex + 1}`,
-                    action,
-                    status: 'running',
-                    timestamp: Date.now(),
-                  },
-                ];
-              }
-              const last = prev[prev.length - 1];
-              if (!last) return prev;
-              return [...prev.slice(0, -1), { ...last, action, status: 'running' }];
-            });
-          } else if (event.type === 'action_result') {
-            setFeedItems((prev) => {
-              const last = prev[prev.length - 1];
-              if (!last) return prev;
-              return [
-                ...prev.slice(0, -1),
-                {
-                  ...last,
-                  status: event.data.success ? 'success' : 'error',
-                  error: event.data.error,
-                },
-              ];
-            });
-          } else if (event.type === 'done') {
+          const currentTurnId = activeTurnIdRef.current;
+          if (currentTurnId) {
+            setThreads((prevThreads) =>
+              prevThreads.map((thread) => {
+                const turnIdx = thread.turns.findIndex((turn) => turn.id === currentTurnId);
+                if (turnIdx === -1) return thread;
+
+                const updatedTurn = applyAgentEvent(thread.turns[turnIdx], event);
+                const updatedTurns = [...thread.turns];
+                updatedTurns[turnIdx] = updatedTurn;
+
+                return {
+                  ...thread,
+                  updatedAt: Date.now(),
+                  turns: updatedTurns,
+                };
+              }),
+            );
+          }
+
+          if (event.type === 'done') {
             setStatus('completed');
-            setFinalSummary(event.data.summary);
           } else if (event.type === 'error') {
             setStatus('failed');
-            setErrorMessage(event.data.error);
           }
         }
 
         if (msg.type === 'FINISHED') {
           setAgentTab(null);
-          if (msg.success) {
-            setStatus('completed');
-            if (msg.summary) setFinalSummary(msg.summary);
-          } else {
-            setStatus('failed');
-            if (msg.error) setErrorMessage(msg.error);
+          setStatus(msg.success ? 'completed' : 'failed');
+          const currentTurnId = activeTurnIdRef.current;
+          if (currentTurnId) {
+            setThreads((prev) =>
+              prev.map((thread) => {
+                const turnIdx = thread.turns.findIndex((t) => t.id === currentTurnId);
+                if (turnIdx === -1) return thread;
+                const turn = thread.turns[turnIdx];
+                const updatedTurns = [...thread.turns];
+                updatedTurns[turnIdx] = {
+                  ...turn,
+                  status: msg.success ? 'completed' : 'failed',
+                  result: msg.summary ?? turn.result,
+                  error: msg.error ?? turn.error,
+                };
+                return {
+                  ...thread,
+                  updatedAt: Date.now(),
+                  turns: updatedTurns,
+                };
+              }),
+            );
+            activeTurnIdRef.current = null;
           }
         }
 
         if (msg.type === 'ERROR') {
           setStatus('failed');
           setAgentTab(null);
-          setErrorMessage(msg.error);
+          const currentTurnId = activeTurnIdRef.current;
+          if (currentTurnId) {
+            setThreads((prev) =>
+              prev.map((thread) => {
+                const turnIdx = thread.turns.findIndex((t) => t.id === currentTurnId);
+                if (turnIdx === -1) return thread;
+                const turn = thread.turns[turnIdx];
+                const updatedTurns = [...thread.turns];
+                updatedTurns[turnIdx] = {
+                  ...turn,
+                  status: 'failed',
+                  error: msg.error ?? 'Execution error',
+                };
+                return {
+                  ...thread,
+                  updatedAt: Date.now(),
+                  turns: updatedTurns,
+                };
+              }),
+            );
+            activeTurnIdRef.current = null;
+          }
         }
       });
 
@@ -277,9 +307,16 @@ export const App: React.FC = () => {
     };
   }, [getOrCreatePort]);
 
-  // Load saved configuration and skills on mount
+  // Load saved configuration, skills, mode, and threads on mount
   useEffect(() => {
     loadStoredSkills().then(setSkills);
+
+    loadThreads().then((loaded) => {
+      if (loaded && loaded.length > 0) {
+        setThreads(loaded);
+        setActiveThreadId(loaded[0].id);
+      }
+    });
 
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.get(
@@ -289,6 +326,7 @@ export const App: React.FC = () => {
           'browgent_mcp_endpoint',
           'browgent_provider_configs',
           'browgent_show_overlay',
+          'browgent_mode',
         ],
         (res) => {
           const activeConfig: LLMConfig = res.browgent_config || DEFAULT_CONFIG;
@@ -298,15 +336,23 @@ export const App: React.FC = () => {
           if (typeof res.browgent_show_overlay === 'boolean') {
             setShowOverlay(res.browgent_show_overlay);
           }
+          if (res.browgent_mode === 'ask' || res.browgent_mode === 'agent') {
+            setMode(res.browgent_mode);
+          }
 
-          // Per-provider settings. Upgrading installs have no map yet, so seed it
-          // from the currently active config to avoid losing their credentials.
           const storedMap = (res.browgent_provider_configs || {}) as ProviderConfigMap;
           setProviderConfigs(seedProviderConfigs(storedMap, activeConfig));
         },
       );
     }
   }, []);
+
+  const handleSetMode = (nextMode: TurnMode) => {
+    setMode(nextMode);
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ browgent_mode: nextMode });
+    }
+  };
 
   const persistProviderConfigs = (map: ProviderConfigMap) => {
     setProviderConfigs(map);
@@ -360,24 +406,62 @@ export const App: React.FC = () => {
   const handleRun = () => {
     if (!goal.trim()) return;
 
+    const trimmedGoal = goal.trim();
     const port = getOrCreatePort();
     if (!port) {
       setStatus('failed');
-      setErrorMessage(
-        'Could not establish connection to background service worker. Please reload the extension.',
-      );
       return;
     }
 
+    const currentThread = threads.find((t) => t.id === activeThreadId);
+    const conversation = toConversation(currentThread);
+
+    const newTurnId = `turn-${Date.now()}`;
+    const newTurn: Turn = {
+      id: newTurnId,
+      mode,
+      prompt: trimmedGoal,
+      tab: activeTab ? { title: activeTab.title, url: activeTab.url } : undefined,
+      steps: [],
+      status: 'running',
+      createdAt: Date.now(),
+    };
+
+    activeTurnIdRef.current = newTurnId;
     setStatus('running');
-    setFeedItems([]);
-    setFinalSummary('');
-    setErrorMessage('');
+    setGoal('');
+
+    if (currentThread) {
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === currentThread.id
+            ? {
+                ...t,
+                updatedAt: Date.now(),
+                turns: [...t.turns, newTurn],
+              }
+            : t,
+        ),
+      );
+    } else {
+      const newThreadId = `thread-${Date.now()}`;
+      const newThread: Thread = {
+        id: newThreadId,
+        title: trimmedGoal.slice(0, 60),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        turns: [newTurn],
+      };
+      setActiveThreadId(newThreadId);
+      setThreads((prev) => [newThread, ...prev]);
+    }
 
     port.postMessage({
       type: 'START_AGENT',
       payload: {
-        goal,
+        goal: trimmedGoal,
+        mode,
+        conversation,
         llmConfig: config,
         maxSteps,
         skills,
@@ -394,14 +478,37 @@ export const App: React.FC = () => {
       port.postMessage({ type: 'STOP_AGENT' });
     }
     setStatus('stopped');
+    const currentTurnId = activeTurnIdRef.current;
+    if (currentTurnId) {
+      setThreads((prev) =>
+        prev.map((thread) => {
+          const turnIdx = thread.turns.findIndex((t) => t.id === currentTurnId);
+          if (turnIdx === -1) return thread;
+          const turn = thread.turns[turnIdx];
+          const updatedTurns = [...thread.turns];
+          updatedTurns[turnIdx] = {
+            ...turn,
+            status: 'stopped',
+          };
+          return {
+            ...thread,
+            updatedAt: Date.now(),
+            turns: updatedTurns,
+          };
+        }),
+      );
+      activeTurnIdRef.current = null;
+    }
   };
 
-  const handleClearHistory = () => {
-    setFeedItems([]);
-    setFinalSummary('');
-    setErrorMessage('');
+  const handleNewChat = () => {
+    setActiveThreadId(null);
+    activeTurnIdRef.current = null;
     setStatus('idle');
+    setGoal('');
   };
+
+  const currentThread = threads.find((t) => t.id === activeThreadId);
 
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100 antialiased font-sans overflow-hidden">
@@ -425,32 +532,43 @@ export const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-1">
-          {feedItems.length > 0 && (
-            <button
-              onClick={handleClearHistory}
-              title="Clear timeline"
-              aria-label="Clear timeline"
-              className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleNewChat}
+            title="New chat"
+            aria-label="New chat"
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
 
           <button
+            type="button"
+            onClick={() => setIsHistoryOpen(true)}
+            title="Chat history"
+            aria-label="Chat history"
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+          >
+            <Clock className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
             onClick={handleToggleTheme}
             title={theme === 'dark' ? 'Switch to day mode' : 'Switch to night mode'}
             aria-label={theme === 'dark' ? 'Switch to day mode' : 'Switch to night mode'}
             aria-pressed={theme === 'light'}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
           >
             {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
           </button>
 
           <button
+            type="button"
             onClick={() => setIsSettingsOpen(true)}
             title="Settings"
             aria-label="Open settings"
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
           >
             <Settings className="w-3.5 h-3.5" />
           </button>
@@ -460,11 +578,9 @@ export const App: React.FC = () => {
       {/* Skills Bar */}
       <SkillSelector skills={skills} onToggleSkill={handleToggleSkill} />
 
-      {/* Main Step Feed */}
-      <StepFeed
-        items={feedItems}
-        finalSummary={finalSummary}
-        errorMessage={errorMessage}
+      {/* Main Chat Thread */}
+      <ChatThread
+        turns={currentThread?.turns || []}
         isRunning={status === 'running'}
         suggestions={DEFAULT_PROMPTS}
         onSuggestionClick={(prompt) => {
@@ -478,7 +594,7 @@ export const App: React.FC = () => {
           files={files}
           onAddFiles={(newFiles) => setFiles((prev) => [...prev, ...newFiles])}
           onRemoveFile={(idx) => setFiles((prev) => prev.filter((_, i) => i !== idx))}
-          onError={setErrorMessage}
+          onError={(err) => console.warn('[Browgent File Attachment]', err)}
           disabled={status === 'running'}
         />
       </div>
@@ -493,9 +609,41 @@ export const App: React.FC = () => {
       <GoalInput
         goal={goal}
         setGoal={setGoal}
+        mode={mode}
+        setMode={handleSetMode}
         isRunning={status === 'running'}
         onRun={handleRun}
         onStop={handleStop}
+      />
+
+      {/* History Modal */}
+      <ThreadList
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        threads={threads}
+        activeThreadId={activeThreadId}
+        onSelectThread={(id) => {
+          setActiveThreadId(id);
+          setStatus('idle');
+        }}
+        onDeleteThread={(id) => {
+          setThreads((prev) => {
+            const next = prev.filter((t) => t.id !== id);
+            if (activeThreadId === id) {
+              setActiveThreadId(next[0]?.id || null);
+            }
+            return next;
+          });
+        }}
+        onClearAll={() => {
+          setThreads([]);
+          setActiveThreadId(null);
+          activeTurnIdRef.current = null;
+          setStatus('idle');
+          saveThreads([]);
+          setIsHistoryOpen(false);
+        }}
+        onNewThread={handleNewChat}
       />
 
       {/* Settings Modal */}
