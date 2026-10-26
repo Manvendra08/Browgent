@@ -126,4 +126,38 @@ describe('AgentController batch action execution', () => {
     expect((clickMessages[0][1] as { elementId: number }).elementId).toBe(3);
     expect((clickMessages[1][1] as { elementId: number }).elementId).toBe(8);
   });
+
+  it('stops a batch immediately after a navigate action', async () => {
+    stubChrome();
+
+    mockedQueryLLM.mockResolvedValueOnce({
+      thought: 'Navigate and then try to click old element',
+      action: { action: 'navigate', url: 'https://other.example.com' },
+      actions: [
+        { action: 'navigate', url: 'https://other.example.com' },
+        { action: 'click', elementId: 3 },
+      ],
+    }).mockResolvedValueOnce({
+      thought: 'Finish',
+      action: { action: 'finish', summary: 'Done' },
+    });
+
+    mockedQueryLLMRaw.mockResolvedValue(
+      '```json\n{"confirmed": true, "evidence": "Navigated"}\n```',
+    );
+
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 5,
+    });
+
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const result = await controller.run(1, 'go elsewhere', (event) => events.push(event));
+
+    expect(result.success).toBe(true);
+    const actionEvents = events.filter((e) => e.type === 'action');
+    // Only 1 action executed in turn 1 (navigate), because the batch was fenced at navigate
+    expect(actionEvents.length).toBe(2); // 1 navigate + 1 finish
+    expect((actionEvents[0].data as { action: { action: string } }).action.action).toBe('navigate');
+  });
 });

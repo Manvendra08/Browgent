@@ -57,22 +57,50 @@ export async function queryAnthropic(config: LLMConfig, messages: LLMMessage[], 
   };
 
   if (systemPrompt) {
-    payload.system = systemPrompt;
+    payload.system = [
+      {
+        type: 'text',
+        text: systemPrompt,
+        cache_control: { type: 'ephemeral' },
+      },
+    ];
   }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+    'anthropic-beta': 'prompt-caching-2024-07-31',
+    'anthropic-dangerous-direct-browser-access': 'true',
+  };
 
   const response = await fetchLLM(endpoint, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
+    headers,
     body: JSON.stringify(payload),
   }, 'Anthropic', signal);
 
   if (!response.ok) {
     const errorBody = await response.text();
+    // Resilient fallback for third-party proxies that only accept a plain string system prompt
+    if (Array.isArray(payload.system) && /system/i.test(errorBody) && /string|array/i.test(errorBody)) {
+      payload.system = systemPrompt;
+      const cleanHeaders = { ...headers };
+      delete cleanHeaders['anthropic-beta'];
+      const retryResponse = await fetchLLM(endpoint, {
+        method: 'POST',
+        headers: cleanHeaders,
+        body: JSON.stringify(payload),
+      }, 'Anthropic', signal);
+
+      if (retryResponse.ok) {
+        const retryData = await retryResponse.json();
+        const retryText = retryData.content && retryData.content.find((c: { type: string; text?: string }) => c.type === 'text');
+        if (retryText && retryText.text) {
+          return retryText.text;
+        }
+      }
+    }
     throw new Error(`Anthropic API Error (${response.status}): ${redactSecrets(truncateErrorBody(errorBody), [config.apiKey])}`);
   }
 

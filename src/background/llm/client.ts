@@ -1,11 +1,11 @@
 import { LLMConfig, LLMMessage, AgentDecision } from './types';
 import { parseAgentAction } from '../actions';
 import { queryOmniRoute, resolveOmniRouteModel } from './omniroute';
-import { queryOpenAI } from './openai';
+import { queryOpenAI, isModelTextOnly, markModelAsTextOnly, clearKnownTextOnlyModels } from './openai';
 import { queryGemini } from './gemini';
 import { queryAnthropic } from './anthropic';
 
-export { resolveOmniRouteModel };
+export { resolveOmniRouteModel, isModelTextOnly, markModelAsTextOnly, clearKnownTextOnlyModels };
 
 export class ActionParseError extends Error {
   constructor(message: string) {

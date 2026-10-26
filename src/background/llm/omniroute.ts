@@ -1,5 +1,6 @@
 import { LLMConfig, LLMMessage } from './types';
 import { fetchLLM, redactSecrets, truncateErrorBody } from './net';
+import { isImageUnsupportedError, isModelTextOnly, markModelAsTextOnly } from './openai';
 
 export const OMNIROUTE_DEFAULT_BASE_URL = 'http://localhost:20128/v1/chat/completions';
 
@@ -42,20 +43,26 @@ export function resolveOmniRouteModel(aliasOrModel?: string): string {
 export async function queryOmniRoute(config: LLMConfig, messages: LLMMessage[], signal?: AbortSignal): Promise<string> {
   const endpoint = normalizeOmniRouteEndpoint(config.baseUrl);
   const resolvedModel = resolveOmniRouteModel(config.model);
+  const textOnly = isModelTextOnly('omniroute', resolvedModel);
 
-  const formattedMessages = messages.map((m) => {
-    if (m.images && m.images.length > 0) {
-      const parts: unknown[] = [{ type: 'text', text: m.content }];
-      for (const img of m.images) {
-        parts.push({
-          type: 'image_url',
-          image_url: { url: img },
-        });
+  const formatMessages = (msgs: LLMMessage[], includeImages: boolean) => {
+    return msgs.map((m) => {
+      if (includeImages && m.images && m.images.length > 0) {
+        const parts: unknown[] = [{ type: 'text', text: m.content }];
+        for (const img of m.images) {
+          parts.push({
+            type: 'image_url',
+            image_url: { url: img },
+          });
+        }
+        return { role: m.role, content: parts };
       }
-      return { role: m.role, content: parts };
-    }
-    return { role: m.role, content: m.content };
-  });
+      return { role: m.role, content: m.content };
+    });
+  };
+
+  const hasImages = !textOnly && messages.some((m) => m.images && m.images.length > 0);
+  let formattedMessages = formatMessages(messages, hasImages);
 
   const payload: Record<string, unknown> = {
     model: resolvedModel,
@@ -73,7 +80,7 @@ export async function queryOmniRoute(config: LLMConfig, messages: LLMMessage[], 
     headers['Authorization'] = `Bearer ${config.apiKey.trim()}`;
   }
 
-  const response = await fetchLLM(endpoint, {
+  let response = await fetchLLM(endpoint, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
@@ -81,7 +88,26 @@ export async function queryOmniRoute(config: LLMConfig, messages: LLMMessage[], 
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`OmniRoute API Error (${response.status}): ${redactSecrets(truncateErrorBody(errorBody), [config.apiKey])}`);
+    if (hasImages && isImageUnsupportedError(errorBody)) {
+      console.warn(`[Browgent LLM] OmniRoute model "${resolvedModel}" does not support image input. Retrying in text-only DOM mode...`);
+      markModelAsTextOnly('omniroute', resolvedModel);
+
+      formattedMessages = formatMessages(messages, false);
+      payload.messages = formattedMessages;
+
+      response = await fetchLLM(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      }, 'OmniRoute', signal);
+
+      if (!response.ok) {
+        const retryErrorBody = await response.text();
+        throw new Error(`OmniRoute API Error (${response.status}): ${redactSecrets(truncateErrorBody(retryErrorBody), [config.apiKey])}`);
+      }
+    } else {
+      throw new Error(`OmniRoute API Error (${response.status}): ${redactSecrets(truncateErrorBody(errorBody), [config.apiKey])}`);
+    }
   }
 
   const data = await response.json();

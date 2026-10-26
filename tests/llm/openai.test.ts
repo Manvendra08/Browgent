@@ -1,9 +1,20 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { queryOpenAI, normalizeOpenAIEndpoint } from '../../src/background/llm/openai';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import {
+  queryOpenAI,
+  normalizeOpenAIEndpoint,
+  clearKnownTextOnlyModels,
+  isModelTextOnly,
+  isImageUnsupportedError,
+} from '../../src/background/llm/openai';
+
+beforeEach(() => {
+  clearKnownTextOnlyModels();
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  clearKnownTextOnlyModels();
 });
 
 function okResponse(content = 'ok'): Response {
@@ -165,5 +176,73 @@ describe('OpenAI-compatible provider', () => {
     expect(normalizeOpenAIEndpoint('http://localhost:11434/v1/')).toBe('http://localhost:11434/v1/chat/completions');
     expect(normalizeOpenAIEndpoint('http://localhost:11434/v1/models')).toBe('http://localhost:11434/v1/chat/completions');
     expect(normalizeOpenAIEndpoint('http://localhost:11434/v1/chat/completions')).toBe('http://localhost:11434/v1/chat/completions');
+  });
+
+  it('detects image unsupported errors accurately', () => {
+    expect(
+      isImageUnsupportedError(
+        '{"error":{"message":"No endpoints found that support image input","code":404,"metadata":{"routing_funnel":[{"step":"Initial Endpoints","endpoint_count":1}],"failed_routing_step":"Filter by Image Support"}}}',
+      ),
+    ).toBe(true);
+    expect(isImageUnsupportedError('Model does not support vision inputs')).toBe(true);
+    expect(isImageUnsupportedError('Rate limit exceeded')).toBe(false);
+  });
+
+  it('automatically falls back to text-only mode when provider rejects image input (Kilo / Nemotron error)', async () => {
+    const errorBody = JSON.stringify({
+      error: {
+        message: 'No endpoints found that support image input',
+        code: 404,
+        metadata: {
+          routing_funnel: [{ step: 'Initial Endpoints', endpoint_count: 1 }],
+          failed_routing_step: 'Filter by Image Support',
+        },
+      },
+    });
+
+    let callCount = 0;
+    const fetchMock = vi.fn().mockImplementation((_url, init: RequestInit) => {
+      callCount++;
+      const body = JSON.parse(init.body as string);
+      if (callCount === 1) {
+        // First call includes images and fails with 404
+        expect(Array.isArray(body.messages[0].content)).toBe(true);
+        return Promise.resolve(new Response(errorBody, { status: 404 }));
+      }
+      if (callCount === 2) {
+        // Second call retries without images as text-only
+        expect(typeof body.messages[0].content).toBe('string');
+        expect(body.messages[0].content).toBe('look at this page');
+        return Promise.resolve(okResponse('{"action":"click","elementId":5}'));
+      }
+      // Third call (subsequent request) uses text-only directly
+      expect(typeof body.messages[0].content).toBe('string');
+      expect(body.messages[0].content).toBe('step 2');
+      return Promise.resolve(okResponse('{"action":"finish","summary":"Done"}'));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const config = {
+      provider: 'openai-compat' as const,
+      model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+      baseUrl: 'https://ai-gateway.kilo.ai/api/v1',
+      apiKey: 'kilo-key',
+    };
+
+    const result = await queryOpenAI(config, [
+      { role: 'user', content: 'look at this page', images: ['data:image/png;base64,1234'] },
+    ]);
+
+    expect(result).toBe('{"action":"click","elementId":5}');
+    expect(callCount).toBe(2);
+    // Model is now recorded as text-only
+    expect(isModelTextOnly(config.provider, config.model)).toBe(true);
+
+    // On subsequent call with this model, it sends text-only directly on first try
+    const secondResult = await queryOpenAI(config, [
+      { role: 'user', content: 'step 2', images: ['data:image/png;base64,5678'] },
+    ]);
+    expect(secondResult).toBe('{"action":"finish","summary":"Done"}');
+    expect(callCount).toBe(3);
   });
 });

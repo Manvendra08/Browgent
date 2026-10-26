@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentController, downscaleScreenshot } from '../../src/background/agent';
+import { markModelAsTextOnly, clearKnownTextOnlyModels } from '../../src/background/llm/openai';
 
 vi.mock('../../src/background/llm/client', () => ({
   queryLLM: vi.fn(),
@@ -11,6 +12,9 @@ const mockedQueryLLM = vi.mocked(queryLLM);
 const mockedQueryLLMRaw = vi.mocked(queryLLMRaw);
 
 describe('Agent Controller', () => {
+  beforeEach(() => {
+    clearKnownTextOnlyModels();
+  });
   it('initializes in idle status', () => {
     const controller = new AgentController({
       llmConfig: { provider: 'omniroute', model: 'free' },
@@ -326,6 +330,48 @@ describe('Agent Controller', () => {
       // Verify CLEAR_ALL_VISUALS was sent to clean up badges
       expect(sendMessageMock).toHaveBeenCalledWith(1, { type: 'CLEAR_ALL_VISUALS' });
 
+      vi.unstubAllGlobals();
+    });
+
+    it('skips screenshot capture for known text-only models', async () => {
+      markModelAsTextOnly('openai-compat', 'nvidia/nemotron-3-ultra-550b-a55b:free');
+
+      const captureScreenshotMock = vi.fn();
+      vi.stubGlobal('chrome', {
+        runtime: { lastError: undefined },
+        tabs: {
+          get: vi.fn().mockResolvedValue({ id: 1, url: 'https://example.com' }),
+          sendMessage: vi.fn().mockImplementation((_tabId, msg, cb) => {
+            if (msg.type === 'GET_DOM_STATE') {
+              cb({
+                success: true,
+                data: {
+                  url: 'https://example.com',
+                  title: 'Text Only Page',
+                  elements: [],
+                  formattedPrompt: 'No elements',
+                  viewport: { width: 1280, height: 800, scrollX: 0, scrollY: 0 },
+                },
+              });
+            } else {
+              cb({ success: true });
+            }
+          }),
+          captureVisibleTab: captureScreenshotMock,
+        },
+      });
+
+      const controller = new AgentController({
+        llmConfig: {
+          provider: 'openai-compat',
+          model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+        },
+      });
+
+      await controller.answer(1, 'What is this?', () => {});
+      expect(captureScreenshotMock).not.toHaveBeenCalled();
+
+      clearKnownTextOnlyModels();
       vi.unstubAllGlobals();
     });
 
