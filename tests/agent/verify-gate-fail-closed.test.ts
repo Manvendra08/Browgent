@@ -79,15 +79,35 @@ describe('Completion verification gate fails closed', () => {
       runtime: { lastError: undefined },
       tabs: {
         get: vi.fn(async () => ({ id: 1, url: 'https://quiz.example.com' })),
-        sendMessage: vi.fn((_tabId: number, payload: Record<string, unknown>, cb: (r: unknown) => void) => {
-          // First perception succeeds; the re-read during verification fails.
-          if (payload.type === 'GET_DOM_STATE' && domReads === 0) {
-            domReads++;
-            cb({ success: true, data: { url: 'https://quiz.example.com', title: 'Quiz', elements: [], formattedPrompt: 'none', viewport: {} } });
-            return;
+        sendMessage: vi.fn(
+          (
+            _tabId: number,
+            payload: Record<string, unknown>,
+            optionsOrCb: unknown,
+            maybeCb?: (r: unknown) => void
+          ) => {
+            const cb =
+              typeof optionsOrCb === 'function'
+                ? (optionsOrCb as (r: unknown) => void)
+                : maybeCb;
+            // First perception succeeds; the re-read during verification fails.
+            if (payload.type === 'GET_DOM_STATE' && domReads === 0) {
+              domReads++;
+              cb?.({
+                success: true,
+                data: {
+                  url: 'https://quiz.example.com',
+                  title: 'Quiz',
+                  elements: [],
+                  formattedPrompt: 'none',
+                  viewport: {},
+                },
+              });
+              return;
+            }
+            cb?.({ success: false, error: 'Receiving end does not exist' });
           }
-          cb({ success: false, error: 'Receiving end does not exist' });
-        }),
+        ),
       },
       scripting: { executeScript: vi.fn(async () => { throw new Error('cannot be scripted'); }) },
     });

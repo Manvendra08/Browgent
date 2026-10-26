@@ -161,8 +161,9 @@ describe('AgentController question-goal verification', () => {
       runtime: { lastError: undefined },
       tabs: {
         get: vi.fn().mockResolvedValue({ id: 1, url: 'https://www.linkedin.com/jobs/' }),
-        sendMessage: vi.fn((_id, _msg, cb) =>
-          cb({
+        sendMessage: vi.fn((_id, _msg, optionsOrCb, maybeCb) => {
+          const cb = typeof optionsOrCb === 'function' ? optionsOrCb : maybeCb;
+          cb?.({
             success: true,
             data: {
               url: 'https://www.linkedin.com/jobs/',
@@ -172,8 +173,8 @@ describe('AgentController question-goal verification', () => {
               textExcerpt: 'Business leadership role. Identify legal and regulatory risks early.',
               viewport: { width: 1280, height: 800, scrollX: 0, scrollY: 0 },
             },
-          })
-        ),
+          });
+        }),
       },
     });
 

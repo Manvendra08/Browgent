@@ -62,8 +62,19 @@ beforeEach(() => {
   domResponder = () => ({ success: false, error: 'unsupported message' });
 
   sendMessage = vi.fn(
-    (_tabId: number, payload: Record<string, unknown>, callback: (response: DomResponse) => void) => {
-      callback(domResponder(payload));
+    (
+      _tabId: number,
+      payload: Record<string, unknown>,
+      optionsOrCallback: unknown,
+      maybeCallback?: (response: DomResponse) => void
+    ) => {
+      const callback =
+        typeof optionsOrCallback === 'function'
+          ? (optionsOrCallback as (response: DomResponse) => void)
+          : maybeCallback;
+      if (callback) {
+        callback(domResponder(payload));
+      }
     }
   );
 
@@ -212,6 +223,17 @@ describe('executeAgentAction', () => {
     // Exactly one click is dispatched — no double-fire through the CDP fallback.
     const messageTypes = sendMessage.mock.calls.map((call) => (call[1] as Record<string, unknown>).type);
     expect(messageTypes).toEqual(['CLICK_ELEMENT']);
+  });
+
+  it('targets the top frame (frameId: 0) when dispatching DOM actions', async () => {
+    domResponder = () => ({ success: true });
+    await executeAgentAction(TAB_ID, { action: 'click', elementId: 1 }, ELEMENTS);
+    expect(sendMessage).toHaveBeenCalledWith(
+      TAB_ID,
+      expect.objectContaining({ type: 'CLICK_ELEMENT' }),
+      { frameId: 0 },
+      expect.any(Function)
+    );
   });
 
   it('falls back to a single CDP click using the rect returned by GET_ELEMENT_RECT', async () => {

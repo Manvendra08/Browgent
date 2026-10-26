@@ -654,6 +654,7 @@ export class AgentController {
         chrome.tabs.sendMessage(
           tabId,
           { type: 'GET_DOM_STATE', showOverlay: this.showOverlay },
+          { frameId: 0 },
           (response) => {
             if (chrome.runtime.lastError) {
               return reject(new Error(chrome.runtime.lastError.message));

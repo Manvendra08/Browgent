@@ -23,13 +23,21 @@ const DOM_STATE = {
 };
 
 function stubChrome() {
-  const sendMessage = vi.fn((_tabId: number, payload: Record<string, unknown>, cb: (r: unknown) => void) => {
-    if (payload.type === 'GET_DOM_STATE') {
-      cb({ success: true, data: DOM_STATE });
-      return;
+  const sendMessage = vi.fn(
+    (
+      _tabId: number,
+      payload: Record<string, unknown>,
+      optionsOrCb: unknown,
+      maybeCb?: (r: unknown) => void
+    ) => {
+      const cb = typeof optionsOrCb === 'function' ? (optionsOrCb as (r: unknown) => void) : maybeCb;
+      if (payload.type === 'GET_DOM_STATE') {
+        cb?.({ success: true, data: DOM_STATE });
+        return;
+      }
+      cb?.({ success: true, rect: { x: 10, y: 20, width: 100, height: 20 } });
     }
-    cb({ success: true, rect: { x: 10, y: 20, width: 100, height: 20 } });
-  });
+  );
 
   vi.stubGlobal('chrome', {
     runtime: { lastError: undefined },

@@ -208,7 +208,7 @@ function sendDomAction(
       resolve({ success: false, error: 'chrome.tabs unavailable' });
       return;
     }
-    chrome.tabs.sendMessage(tabId, payload, (response) => {
+    chrome.tabs.sendMessage(tabId, payload, { frameId: 0 }, (response) => {
       if (chrome.runtime.lastError || !response) {
         resolve({ success: false, error: chrome.runtime.lastError?.message || 'no response' });
         return;

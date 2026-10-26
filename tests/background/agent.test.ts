@@ -94,15 +94,18 @@ describe('Agent Controller', () => {
     expect(controller.checkLoop({ action: 'click', elementId: 2 })).toBe(true);
   });
 
-  it('captures DOM with showOverlay: false by default for clean background mode', async () => {
+  it('captures DOM with showOverlay: false by default for clean background mode and targets frameId 0', async () => {
     let domStateMessage: { type: string; showOverlay?: boolean } | null = null;
+    let capturedOptions: unknown = null;
     vi.stubGlobal('chrome', {
       runtime: { lastError: undefined },
       tabs: {
         get: vi.fn().mockResolvedValue({ id: 1, url: 'https://example.com' }),
-        sendMessage: vi.fn((_id, msg, cb) => {
+        sendMessage: vi.fn((_id, msg, optionsOrCb, maybeCb) => {
+          const cb = typeof optionsOrCb === 'function' ? optionsOrCb : maybeCb;
           if (msg.type === 'GET_DOM_STATE') {
             domStateMessage = msg;
+            capturedOptions = optionsOrCb;
           }
           cb({
             success: true,
@@ -134,6 +137,7 @@ describe('Agent Controller', () => {
     expect(domStateMessage).toBeDefined();
     expect(domStateMessage!.type).toBe('GET_DOM_STATE');
     expect(domStateMessage!.showOverlay).toBe(false);
+    expect(capturedOptions).toEqual({ frameId: 0 });
 
     vi.unstubAllGlobals();
   });
@@ -144,7 +148,8 @@ describe('Agent Controller', () => {
       runtime: { lastError: undefined },
       tabs: {
         get: vi.fn().mockResolvedValue({ id: 1, url: 'https://example.com' }),
-        sendMessage: vi.fn((_id, msg, cb) => {
+        sendMessage: vi.fn((_id, msg, optionsOrCb, maybeCb) => {
+          const cb = typeof optionsOrCb === 'function' ? optionsOrCb : maybeCb;
           if (msg.type === 'GET_DOM_STATE') {
             domStateMessage = msg;
           }
