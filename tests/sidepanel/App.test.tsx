@@ -103,6 +103,9 @@ describe('Sidepanel App Conversational Flow', () => {
     fakeSessionStorage = {};
     storageChangeListeners = [];
     portMessageListener = null;
+    vi.mocked(chrome.tabs.query).mockResolvedValue([
+      { id: 101, title: 'Example Page', url: 'https://example.com' } as chrome.tabs.Tab,
+    ]);
   });
 
   it('renders Browgent header, mode toggle buttons, and goal input area', async () => {
@@ -294,5 +297,33 @@ describe('Sidepanel App Conversational Flow', () => {
     });
 
     expect(fakeSessionStorage['browgent_pending_prompt']).toBeUndefined();
+  });
+
+  it('scrubs sensitive URL params from active tab when adding turn to chat', async () => {
+    vi.mocked(chrome.tabs.query).mockResolvedValue([
+      {
+        id: 102,
+        title: '',
+        url: 'https://example.com/auth?code=super_secret_code',
+      } as chrome.tabs.Tab,
+    ]);
+
+    render(<App />);
+
+    // Wait for activeTab to be populated
+    await waitFor(() => {
+      expect(screen.getByText('example.com')).toBeDefined();
+    });
+
+    const input = screen.getByPlaceholderText(/Enter your automation goal/i);
+    fireEvent.change(input, { target: { value: 'Check token' } });
+    fireEvent.click(screen.getByRole('button', { name: /Run Agent/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText('https://example.com/auth?code=redacted').length,
+      ).toBeGreaterThanOrEqual(1);
+      expect(screen.queryByText(/super_secret_code/)).toBeNull();
+    });
   });
 });

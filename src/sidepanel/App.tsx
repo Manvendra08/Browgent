@@ -20,6 +20,7 @@ import {
   applyAgentEvent,
   toConversation,
 } from './threads';
+import { scrubUrl } from '../content/extractor';
 import {
   DEFAULT_LLM_CONFIG,
   seedProviderConfigs,
@@ -126,7 +127,7 @@ export const App: React.FC = () => {
       setActiveTab({
         id: t.id,
         title: t.title,
-        url: t.url,
+        url: scrubUrl(t.url),
         favIconUrl: t.favIconUrl,
       });
     } catch {
@@ -461,7 +462,7 @@ export const App: React.FC = () => {
       id: newTurnId,
       mode,
       prompt: trimmedGoal,
-      tab: activeTab ? { title: activeTab.title, url: activeTab.url } : undefined,
+      tab: activeTab ? { title: activeTab.title, url: scrubUrl(activeTab.url) } : undefined,
       steps: [],
       status: 'running',
       createdAt: Date.now(),

@@ -756,6 +756,8 @@ ${fileSection}`;
       const errMsg = err instanceof Error ? err.message : String(err);
       onProgress({ type: 'error', data: { error: errMsg } });
       return { success: false, error: errMsg };
+    } finally {
+      await this.cleanup(tabId);
     }
   }
 

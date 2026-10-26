@@ -286,5 +286,47 @@ describe('Agent Controller', () => {
 
       vi.unstubAllGlobals();
     });
+
+    it('cleans up visual badges via cleanup() even when answer completes or fails', async () => {
+      mockedQueryLLMRaw.mockClear();
+      mockedQueryLLMRaw.mockResolvedValueOnce('Answer text');
+
+      const sendMessageMock = vi.fn((_tid, _msg, _optsOrCb, cb) => {
+        const callback = typeof _optsOrCb === 'function' ? _optsOrCb : cb;
+        if (callback) {
+          callback({
+            success: true,
+            data: {
+              url: 'https://example.com',
+              title: 'Example',
+              elements: [],
+              formattedPrompt: '',
+              textExcerpt: '',
+              viewport: { width: 1280, height: 800, scrollX: 0, scrollY: 0 },
+            },
+          });
+        }
+      });
+
+      vi.stubGlobal('chrome', {
+        runtime: { lastError: undefined },
+        tabs: {
+          get: vi.fn().mockResolvedValue({ id: 1, url: 'https://example.com' }),
+          sendMessage: sendMessageMock,
+        },
+      });
+
+      const controller = new AgentController({
+        llmConfig: { provider: 'omniroute', model: 'free' },
+        showOverlay: true,
+      });
+
+      await controller.answer(1, 'What is on this page?', () => {});
+
+      // Verify CLEAR_ALL_VISUALS was sent to clean up badges
+      expect(sendMessageMock).toHaveBeenCalledWith(1, { type: 'CLEAR_ALL_VISUALS' });
+
+      vi.unstubAllGlobals();
+    });
   });
 });

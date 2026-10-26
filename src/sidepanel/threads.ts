@@ -1,5 +1,6 @@
 import { AgentAction } from '../background/types';
 import { FeedItem } from './components/StepFeed';
+import { scrubUrl } from '../content/extractor';
 
 export type TurnMode = 'ask' | 'agent';
 
@@ -46,19 +47,59 @@ export function redactAction(action?: AgentAction): AgentAction | undefined {
   return action;
 }
 
+export function sanitizeStepForPersistence(step: FeedItem): FeedItem {
+  const sanitized: FeedItem = {
+    ...step,
+    action: redactAction(step.action),
+  };
+  // Sensitive monologue/thoughts are ephemeral and never persisted to disk
+  delete (sanitized as { thought?: string }).thought;
+  return sanitized;
+}
+
 export function sanitizeThreadForPersistence(thread: Thread): Thread {
   const turns = thread.turns.slice(-MAX_TURNS_PER_THREAD).map((turn) => ({
     ...turn,
-    steps: turn.steps.map((step) => ({
-      ...step,
-      action: redactAction(step.action),
-    })),
+    tab: turn.tab
+      ? {
+          title: turn.tab.title,
+          url: scrubUrl(turn.tab.url),
+        }
+      : undefined,
+    steps: turn.steps.map(sanitizeStepForPersistence),
   }));
 
   return {
     ...thread,
     turns,
   };
+}
+
+export function normalizeLoadedTurn(turn: Turn): Turn {
+  const isRunning = turn.status === 'running';
+  return {
+    ...turn,
+    status: isRunning ? 'stopped' : turn.status,
+    error: isRunning ? (turn.error || 'Execution stopped (panel closed mid-run)') : turn.error,
+    tab: turn.tab
+      ? {
+          title: turn.tab.title,
+          url: scrubUrl(turn.tab.url),
+        }
+      : undefined,
+    steps: turn.steps.map((s) => ({
+      ...s,
+      status: s.status === 'running' ? 'error' : s.status,
+      error: s.status === 'running' ? (s.error || 'Interrupted') : s.error,
+    })),
+  };
+}
+
+export function normalizeLoadedThreads(threads: Thread[]): Thread[] {
+  return threads.map((thread) => ({
+    ...thread,
+    turns: thread.turns.map(normalizeLoadedTurn),
+  }));
 }
 
 export async function loadThreads(): Promise<Thread[]> {
@@ -69,7 +110,7 @@ export async function loadThreads(): Promise<Thread[]> {
     const result = await chrome.storage.local.get([THREADS_STORAGE_KEY]);
     const stored = result[THREADS_STORAGE_KEY];
     if (Array.isArray(stored)) {
-      return stored as Thread[];
+      return normalizeLoadedThreads(stored as Thread[]);
     }
     return [];
   } catch (err: unknown) {

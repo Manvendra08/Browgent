@@ -146,7 +146,7 @@ describe('threads model and persistence', () => {
       });
     });
 
-    it('sanitizes all steps across turns in thread', () => {
+    it('sanitizes all steps across turns in thread, redacts actions, scrubs URLs, and drops thought text', () => {
       const thread: Thread = {
         id: 't-1',
         title: 'Form fill',
@@ -157,10 +157,15 @@ describe('threads model and persistence', () => {
             id: 'turn-1',
             mode: 'agent',
             prompt: 'Fill login',
+            tab: {
+              title: 'Login Page',
+              url: 'https://example.com/oauth/callback?code=super_secret_code&state=xyz123&client_id=123',
+            },
             steps: [
               {
                 id: 's-1',
                 step: 1,
+                thought: 'Typing the password into the login input',
                 action: { action: 'type', elementId: 1, text: 'mySecret123' },
                 status: 'success',
                 timestamp: 150,
@@ -178,6 +183,12 @@ describe('threads model and persistence', () => {
         elementId: 1,
         text: '[11 chars redacted]',
       });
+      // Thought text must not persist to disk
+      expect(sanitized.turns[0].steps[0].thought).toBeUndefined();
+      // URL query params must be scrubbed of code and state
+      expect(sanitized.turns[0].tab?.url).toBe(
+        'https://example.com/oauth/callback?code=redacted&state=redacted&client_id=123',
+      );
     });
   });
 
@@ -233,6 +244,55 @@ describe('threads model and persistence', () => {
       expect(loaded[0].turns).toHaveLength(MAX_TURNS_PER_THREAD);
       expect(loaded[0].turns[0].id).toBe('turn-10');
       expect(loaded[0].turns[loaded[0].turns.length - 1].id).toBe('turn-39');
+    });
+
+    it('normalizes turns stuck in running status to stopped and running steps to error', async () => {
+      const thread: Thread = {
+        id: 'interrupted-thread',
+        title: 'Interrupted Run',
+        createdAt: 100,
+        updatedAt: 500,
+        turns: [
+          {
+            id: 'turn-running',
+            mode: 'agent',
+            prompt: 'Book flight',
+            tab: {
+              title: 'Flights',
+              url: 'https://example.com/checkout?token=secret_checkout_token',
+            },
+            steps: [
+              {
+                id: 's-1',
+                step: 1,
+                action: { action: 'click', elementId: 10 },
+                status: 'success',
+                timestamp: 100,
+              },
+              {
+                id: 's-2',
+                step: 2,
+                action: { action: 'click', elementId: 12 },
+                status: 'running',
+                timestamp: 101,
+              },
+            ],
+            status: 'running',
+            createdAt: 100,
+          },
+        ],
+      };
+
+      localStorageData['browgent_threads'] = [thread];
+
+      const loaded = await loadThreads();
+      const turn = loaded[0].turns[0];
+
+      expect(turn.status).toBe('stopped');
+      expect(turn.error).toBe('Execution stopped (panel closed mid-run)');
+      expect(turn.steps[1].status).toBe('error');
+      expect(turn.steps[1].error).toBe('Interrupted');
+      expect(turn.tab?.url).toBe('https://example.com/checkout?token=redacted');
     });
   });
 
