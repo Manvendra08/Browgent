@@ -549,6 +549,19 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
         (node as HTMLInputElement | HTMLButtonElement | HTMLSelectElement).disabled ||
         node.getAttribute('aria-disabled') === 'true',
       ) || undefined;
+    const required =
+      Boolean(
+        (node as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).required ||
+        node.getAttribute('aria-required') === 'true' ||
+        node.hasAttribute('required'),
+      ) || undefined;
+    const invalid =
+      Boolean(
+        node.getAttribute('aria-invalid') === 'true' ||
+        node.classList?.contains('is-invalid') ||
+        node.classList?.contains('error') ||
+        node.classList?.contains('has-error'),
+      ) || undefined;
     const ariaChecked = node.getAttribute('aria-checked') || undefined;
     const ariaSelected = node.getAttribute('aria-selected') || undefined;
     const ariaCurrent = node.getAttribute('aria-current') || undefined;
@@ -611,6 +624,8 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
       href,
       checked,
       disabled,
+      required,
+      invalid,
       ariaChecked,
       ariaSelected,
       ariaCurrent,
@@ -627,9 +642,25 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
   return elements;
 }
 
+export function extractValidationErrors(doc: Document): string[] {
+  const errorElements = doc.querySelectorAll(
+    '[role="alert"], .alert-danger, .invalid-feedback, .error-message, .field-validation-error, [aria-live="assertive"], .form-error',
+  );
+  const messages: string[] = [];
+  errorElements.forEach((el) => {
+    if (!isElementVisible(el)) return;
+    const txt = sanitizeUntrustedText((el.textContent || '').trim());
+    if (txt && txt.length > 2 && !messages.includes(txt)) {
+      messages.push(txt.slice(0, 200));
+    }
+  });
+  return messages.slice(0, 5);
+}
+
 export function formatElementsForPrompt(
   elements: PerceivedElement[],
   activeModalTitle?: string,
+  validationErrors?: string[],
 ): string {
   if (elements.length === 0) {
     return 'No visible interactive elements detected on this page.';
@@ -644,6 +675,16 @@ export function formatElementsForPrompt(
   let usedChars = 0;
   let usedElements = 0;
   let omitted = 0;
+
+  if (validationErrors && validationErrors.length > 0) {
+    lines.push('[ON-PAGE FORM VALIDATION ERRORS DETECTED]');
+    for (const err of validationErrors) {
+      lines.push(`- Error: "${err}"`);
+    }
+    lines.push(
+      'Form submission or advancement was blocked by the above errors. You MUST resolve or fill the missing/invalid fields before clicking Submit or Continue again.',
+    );
+  }
 
   if (activeModalTitle) {
     lines.push(`[ACTIVE MODAL DIALOG DETECTED: "${activeModalTitle}"]`);
@@ -694,6 +735,12 @@ export function formatElementsForPrompt(
     }
     if (el.disabled) {
       parts.push(' disabled="true"');
+    }
+    if (el.required) {
+      parts.push(' required="true"');
+    }
+    if (el.invalid) {
+      parts.push(' invalid="true"');
     }
     if (el.ariaChecked) {
       parts.push(` aria-checked="${el.ariaChecked}"`);
@@ -808,8 +855,9 @@ export function extractVisibleText(
 export function captureDOMState(doc: Document = document): DOMState {
   const activeModal = findActiveModal(doc);
   const activeModalTitle = activeModal ? extractModalTitle(activeModal) : undefined;
+  const validationErrors = extractValidationErrors(doc);
   const elements = extractInteractiveElements(doc);
-  const formattedPrompt = formatElementsForPrompt(elements, activeModalTitle);
+  const formattedPrompt = formatElementsForPrompt(elements, activeModalTitle, validationErrors);
   const textExcerpt = extractVisibleText(doc);
 
   const scrollX = typeof window !== 'undefined' ? window.scrollX || 0 : 0;
@@ -817,18 +865,28 @@ export function captureDOMState(doc: Document = document): DOMState {
   const width = typeof window !== 'undefined' ? window.innerWidth || 1280 : 1280;
   const height = typeof window !== 'undefined' ? window.innerHeight || 800 : 800;
 
+  const docEl = doc.documentElement;
+  const body = doc.body;
+  const scrollHeight = Math.max(docEl?.scrollHeight || 0, body?.scrollHeight || 0, height);
+  const atBottom = scrollY + height >= scrollHeight - 15;
+  const atTop = scrollY <= 15;
+
   return {
     url: scrubUrl(doc.location ? doc.location.href : '') ?? '',
     title: doc.title || '',
     elements,
     formattedPrompt,
     activeModalTitle,
+    validationErrors: validationErrors.length > 0 ? validationErrors : undefined,
     textExcerpt,
     viewport: {
       width,
       height,
       scrollX,
       scrollY,
+      scrollHeight,
+      atBottom,
+      atTop,
     },
   };
 }

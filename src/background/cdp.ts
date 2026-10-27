@@ -52,7 +52,11 @@ export async function detachDebugger(tabId: number): Promise<void> {
   }
 }
 
-export async function sendCdpCommand(tabId: number, method: string, params: object = {}): Promise<unknown> {
+export async function sendCdpCommand(
+  tabId: number,
+  method: string,
+  params: object = {},
+): Promise<unknown> {
   if (typeof chrome === 'undefined' || !chrome.debugger) {
     return {};
   }
@@ -98,7 +102,11 @@ export async function dispatchClick(tabId: number, x: number, y: number): Promis
   });
 }
 
-export async function dispatchType(tabId: number, text: string, pressEnter: boolean = false): Promise<void> {
+export async function dispatchType(
+  tabId: number,
+  text: string,
+  pressEnter: boolean = false,
+): Promise<void> {
   await attachDebugger(tabId);
 
   for (const char of text) {
@@ -131,15 +139,33 @@ export async function dispatchType(tabId: number, text: string, pressEnter: bool
   }
 }
 
-export async function dispatchScroll(tabId: number, deltaY: number, deltaX: number = 0): Promise<void> {
+export interface ScrollResult {
+  success: boolean;
+  actualDeltaY?: number;
+  atBottom?: boolean;
+  atTop?: boolean;
+}
+
+export async function dispatchScroll(
+  tabId: number,
+  deltaY: number,
+  deltaX: number = 0,
+): Promise<ScrollResult> {
   if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.sendMessage) {
     try {
-      await chrome.tabs.sendMessage(tabId, {
+      const res = (await chrome.tabs.sendMessage(tabId, {
         type: 'SCROLL_WINDOW',
         deltaY,
         deltaX,
-      });
-      return;
+      })) as
+        | { success?: boolean; actualDeltaY?: number; atBottom?: boolean; atTop?: boolean }
+        | undefined;
+      return {
+        success: Boolean(res?.success),
+        actualDeltaY: res?.actualDeltaY,
+        atBottom: res?.atBottom,
+        atTop: res?.atTop,
+      };
     } catch {
       // Fallback to CDP wheel event if content script isn't reachable
     }
@@ -153,6 +179,7 @@ export async function dispatchScroll(tabId: number, deltaY: number, deltaX: numb
     deltaX,
     deltaY,
   });
+  return { success: true };
 }
 
 export async function dispatchHover(tabId: number, x: number, y: number): Promise<void> {
@@ -217,11 +244,7 @@ export async function enableDialogHandling(
   await attachDebugger(tabId);
   await sendCdpCommand(tabId, 'Page.enable');
 
-  const onEventListener = (
-    source: chrome.debugger.Debuggee,
-    method: string,
-    params?: unknown,
-  ) => {
+  const onEventListener = (source: chrome.debugger.Debuggee, method: string, params?: unknown) => {
     if (source.tabId !== tabId) return;
 
     if (method === 'Page.javascriptDialogOpening') {
@@ -253,4 +276,3 @@ export async function enableDialogHandling(
     }
   };
 }
-

@@ -171,10 +171,7 @@ export function parseCompletionVerdict(raw: string): CompletionVerdict {
     // Extract evidence text following "evidence": "..."
     const evidenceMatch = text.match(/"evidence"\s*:\s*"([\s\S]*?)(?:"\s*[,}]|"\s*$|$)/i);
     if (evidenceMatch && evidenceMatch[1].trim() !== '') {
-      evidence = evidenceMatch[1]
-        .replace(/\\n/g, '\n')
-        .replace(/\\"/g, '"')
-        .trim();
+      evidence = evidenceMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').trim();
     }
 
     const goalKindMatch = text.match(/"goalKind"\s*:\s*"(question|action)"/i);
@@ -289,43 +286,47 @@ export class AgentController {
   }
 
   public checkLoop(action: AgentAction): boolean {
-    // scroll/wait repeat legitimately on long pages; only track state-changing actions
-    const isTrackable =
-      action.action === 'click' ||
-      action.action === 'type' ||
-      action.action === 'select_option' ||
-      action.action === 'press_key' ||
-      action.action === 'hover' ||
-      action.action === 'navigate' ||
-      action.action === 'mcp_call';
-
-    if (!isTrackable) {
+    // wait and terminal actions (finish/fail) are not operational action loops
+    // finish has its own verification gate (MAX_FINISH_REJECTIONS)
+    if (action.action === 'wait' || action.action === 'finish' || action.action === 'fail') {
       return false;
     }
 
     const serialized = JSON.stringify(action);
     this.actionHistory.push(serialized);
 
-    const len = this.actionHistory.length;
-    if (len >= 3) {
-      if (
-        this.actionHistory[len - 1] === serialized &&
-        this.actionHistory[len - 2] === serialized &&
-        this.actionHistory[len - 3] === serialized
-      ) {
+    // Track repeated scrolling in the same direction (e.g. 6 consecutive identical scrolls)
+    if (action.action === 'scroll') {
+      const scrollHistory = this.actionHistory.slice(-6);
+      if (scrollHistory.length === 6 && scrollHistory.every((s) => s === serialized)) {
         return true;
       }
+      return false;
     }
-    if (len >= 6) {
-      if (
-        this.actionHistory[len - 1] === this.actionHistory[len - 3] &&
-        this.actionHistory[len - 3] === this.actionHistory[len - 5] &&
-        this.actionHistory[len - 2] === this.actionHistory[len - 4] &&
-        this.actionHistory[len - 4] === this.actionHistory[len - 6]
-      ) {
-        return true;
+
+    // Filter out scroll actions when evaluating cycles between state-changing actions
+    const trackable = this.actionHistory.filter((entry) => !entry.includes('"action":"scroll"'));
+    const len = trackable.length;
+
+    // Detect repeating cycles of length k (k = 1 to 5) repeated at least 3 times
+    for (let k = 1; k <= 5; k++) {
+      if (len >= k * 3) {
+        let isCycle = true;
+        for (let i = 0; i < k; i++) {
+          const item1 = trackable[len - 1 - i];
+          const item2 = trackable[len - 1 - i - k];
+          const item3 = trackable[len - 1 - i - k * 2];
+          if (item1 !== item2 || item2 !== item3) {
+            isCycle = false;
+            break;
+          }
+        }
+        if (isCycle) {
+          return true;
+        }
       }
     }
+
     return false;
   }
 
@@ -383,8 +384,13 @@ export class AgentController {
 
     if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onCreated) {
       this.onTabCreatedListener = (tab: chrome.tabs.Tab) => {
-        if (tab.id && (tab.openerTabId === this.currentTabId || tab.openerTabId === this.rootTabId)) {
-          console.log(`[Browgent Agent] Tracking popup/child tab ${tab.id} (opener: ${tab.openerTabId})`);
+        if (
+          tab.id &&
+          (tab.openerTabId === this.currentTabId || tab.openerTabId === this.rootTabId)
+        ) {
+          console.log(
+            `[Browgent Agent] Tracking popup/child tab ${tab.id} (opener: ${tab.openerTabId})`,
+          );
           this.currentTabId = tab.id;
           if (tab.url && !isRestrictedUrl(tab.url)) {
             this.ensureContentScript(tab.id, tab.url).catch(() => {});
@@ -398,7 +404,9 @@ export class AgentController {
     if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onRemoved) {
       this.onTabRemovedListener = (removedId: number) => {
         if (removedId === this.currentTabId && this.currentTabId !== this.rootTabId) {
-          console.log(`[Browgent Agent] Popup tab ${removedId} closed, returning to root tab ${this.rootTabId}`);
+          console.log(
+            `[Browgent Agent] Popup tab ${removedId} closed, returning to root tab ${this.rootTabId}`,
+          );
           this.currentTabId = this.rootTabId;
         }
       };
@@ -435,7 +443,11 @@ export class AgentController {
         }
 
         // Validate child tab still open, else fallback to root
-        if (this.currentTabId !== this.rootTabId && typeof chrome !== 'undefined' && chrome.tabs?.get) {
+        if (
+          this.currentTabId !== this.rootTabId &&
+          typeof chrome !== 'undefined' &&
+          chrome.tabs?.get
+        ) {
           try {
             await chrome.tabs.get(this.currentTabId);
           } catch {
@@ -767,7 +779,9 @@ export class AgentController {
       if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.get === 'function') {
         const tab = await chrome.tabs.get(tabId);
         if (isRestrictedUrl(tab?.url)) {
-          throw new Error(`Cannot inspect internal browser page (${tab?.url || 'unknown'}). ${RESTRICTED_URL_HINT}`);
+          throw new Error(
+            `Cannot inspect internal browser page (${tab?.url || 'unknown'}). ${RESTRICTED_URL_HINT}`,
+          );
         }
       }
 
@@ -1088,6 +1102,9 @@ INSTRUCTIONS:
    - For form fields, identify the question from the element's "label" or "group" attribute. Type values into text inputs and click radio/checkbox choices to answer.
    - For native <select> dropdowns, use the "select_option" action with the elementId of the <select> and the desired option value or text.
    - In multi-step forms (e.g. Page 4/5), complete the fields on the current step and click the progression button (e.g. "Review", "Next", "Continue", or "Submit Application") to advance.
+   - If [ON-PAGE FORM VALIDATION ERRORS DETECTED] appears, read the errors carefully and interact with the elements marked invalid="true" or required="true" to fill or fix them before clicking Submit/Next again.
+   - Do NOT repeatedly click radio or checkbox inputs that are already checked (checked="true" or aria-checked="true") unless you specifically intend to toggle or change the selection.
+   - If the page viewport says "AT BOTTOM OF PAGE" or a scroll action reports reaching the bottom, STOP scrolling down! Look at the current interactive elements and fill any remaining fields, or click the progression/submit button.
 5. FOR QUIZZES & MULTIPLE-CHOICE TESTS:
    - Read the question and locate the corresponding answer option among the numbered elements.
    - You MUST FIRST CLICK the specific radio/choice element corresponding to your chosen answer BEFORE clicking "Submit" or "Next"! (Tip: you can batch multiple inputs and clicks into "actions: [...]" up to 5 actions in a single turn).
@@ -1166,10 +1183,7 @@ For tools marked [MCP Tool], use {"action": "mcp_call", "tool": "<tool name>", "
     let conversationBlock = '';
     if (this.conversation.length > 0) {
       const convEntries = this.conversation
-        .map(
-          (c, idx) =>
-            `Turn ${idx + 1}:\nUser: ${c.prompt}\nAssistant Result: ${c.result}`,
-        )
+        .map((c, idx) => `Turn ${idx + 1}:\nUser: ${c.prompt}\nAssistant Result: ${c.result}`)
         .join('\n\n');
       conversationBlock = [
         `<prior_conversation nonce="${this.pageNonce}">`,
@@ -1179,10 +1193,24 @@ For tools marked [MCP Tool], use {"action": "mcp_call", "tool": "<tool name>", "
       ].join('\n');
     }
 
+    let scrollInfo = '';
+    if (domState.viewport) {
+      const { scrollY, scrollHeight, height, atBottom, atTop } = domState.viewport;
+      const statusParts: string[] = [];
+      if (atBottom) statusParts.push('AT BOTTOM OF PAGE');
+      if (atTop) statusParts.push('AT TOP OF PAGE');
+      const pct =
+        scrollHeight && scrollHeight > 0
+          ? Math.round(((scrollY + height) / scrollHeight) * 100)
+          : 100;
+      scrollInfo = `VIEWPORT SCROLL: Position Y = ${scrollY}px (${Math.min(100, pct)}% visible${statusParts.length > 0 ? ' — ' + statusParts.join(', ') : ''})`;
+    }
+
     const pageBlock = [
       `<page_content nonce="${this.pageNonce}">`,
       `URL: ${domState.url}`,
       `TITLE: ${domState.title}`,
+      ...(scrollInfo ? [scrollInfo] : []),
       '',
       'INTERACTIVE ELEMENTS ON CURRENT VIEWPORT:',
       domState.formattedPrompt,
@@ -1314,10 +1342,7 @@ Respond ONLY with a JSON object in this exact format. Keep evidence concise (1-2
     let conversationBlock = '';
     if (this.conversation.length > 0) {
       const convEntries = this.conversation
-        .map(
-          (c, idx) =>
-            `Turn ${idx + 1}:\nUser: ${c.prompt}\nAssistant Result: ${c.result}`,
-        )
+        .map((c, idx) => `Turn ${idx + 1}:\nUser: ${c.prompt}\nAssistant Result: ${c.result}`)
         .join('\n\n');
       conversationBlock = `\n\n<prior_conversation nonce="${this.pageNonce}">\nCONVERSATION SO FAR:\n${convEntries}\n</prior_conversation nonce="${this.pageNonce}">`;
     }
@@ -1457,7 +1482,11 @@ ${domState.formattedPrompt}${textBlock}
 
     // Event-driven DOM quiescence: ask content script to wait until mutations settle (100ms quiet)
     let quietSuccess = false;
-    if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.sendMessage === 'function') {
+    if (
+      typeof chrome !== 'undefined' &&
+      chrome.tabs &&
+      typeof chrome.tabs.sendMessage === 'function'
+    ) {
       try {
         const quietPromise = new Promise<{ success?: boolean; waitedMs?: number }>((resolve) => {
           chrome.tabs.sendMessage(

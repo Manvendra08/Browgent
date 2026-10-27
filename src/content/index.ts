@@ -74,25 +74,45 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     const activeModal = findActiveModal(document);
     let scrolledModal = false;
+    let actualDeltaY = 0;
+    let atBottom = false;
+    let atTop = false;
+
     if (activeModal) {
       const scrollable = (activeModal.querySelector('[class*="content" i], [class*="body" i], [class*="scroll" i], form') || activeModal) as HTMLElement;
       if (scrollable && scrollable.scrollHeight > scrollable.clientHeight) {
+        const prevTop = scrollable.scrollTop;
         scrollable.scrollBy({
           top: deltaY,
           left: deltaX,
           behavior: 'smooth',
         });
+        actualDeltaY = Math.abs(scrollable.scrollTop - prevTop);
+        atBottom = scrollable.scrollTop + scrollable.clientHeight >= scrollable.scrollHeight - 15;
+        atTop = scrollable.scrollTop <= 15;
         scrolledModal = true;
       }
     }
     if (!scrolledModal) {
+      const prevY = window.scrollY;
       window.scrollBy({
         top: deltaY,
         left: deltaX,
         behavior: 'smooth',
       });
+      actualDeltaY = Math.abs(window.scrollY - prevY);
+      const docEl = document.documentElement;
+      const scrollHeight = Math.max(docEl?.scrollHeight || 0, document.body?.scrollHeight || 0, window.innerHeight);
+      atBottom = window.scrollY + window.innerHeight >= scrollHeight - 15;
+      atTop = window.scrollY <= 15;
     }
-    sendResponse({ success: true });
+
+    sendResponse({
+      success: true,
+      actualDeltaY,
+      atBottom,
+      atTop,
+    });
     return true;
   }
 

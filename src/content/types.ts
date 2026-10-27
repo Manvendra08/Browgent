@@ -19,6 +19,8 @@ export interface PerceivedElement {
   href?: string;
   checked?: boolean;
   disabled?: boolean;
+  required?: boolean;
+  invalid?: boolean;
   ariaChecked?: string;
   ariaSelected?: string;
   ariaCurrent?: string;
@@ -41,10 +43,14 @@ export interface DOMState {
    * completion auditor needs real page content to ground a verdict.
    */
   textExcerpt: string;
+  validationErrors?: string[];
   viewport: {
     width: number;
     height: number;
     scrollX: number;
     scrollY: number;
+    scrollHeight?: number;
+    atBottom?: boolean;
+    atTop?: boolean;
   };
 }

@@ -66,7 +66,7 @@ beforeEach(() => {
       _tabId: number,
       payload: Record<string, unknown>,
       optionsOrCallback: unknown,
-      maybeCallback?: (response: DomResponse) => void
+      maybeCallback?: (response: DomResponse) => void,
     ) => {
       const callback =
         typeof optionsOrCallback === 'function'
@@ -75,8 +75,16 @@ beforeEach(() => {
       if (callback) {
         callback(domResponder(payload));
       }
-    }
+    },
   );
+
+  mockedAttachDebugger.mockResolvedValue(undefined);
+  mockedDispatchClick.mockResolvedValue(undefined);
+  mockedDispatchType.mockResolvedValue(undefined);
+  mockedDispatchScroll.mockResolvedValue({ success: true });
+  mockedDispatchHover.mockResolvedValue(undefined);
+  mockedDispatchKeyPress.mockResolvedValue(undefined);
+  mockedNavigateToUrl.mockResolvedValue(undefined);
 
   debuggerAttach = vi.fn().mockResolvedValue(undefined);
 
@@ -126,7 +134,12 @@ describe('Action Parser', () => {
   });
 
   it('parses type action with enter flag', () => {
-    const raw = JSON.stringify({ action: 'type', elementId: 1, text: 'headphones', pressEnter: true });
+    const raw = JSON.stringify({
+      action: 'type',
+      elementId: 1,
+      text: 'headphones',
+      pressEnter: true,
+    });
     const parsed = parseAgentAction(raw);
     expect(parsed).toEqual({ action: 'type', elementId: 1, text: 'headphones', pressEnter: true });
   });
@@ -168,14 +181,14 @@ describe('Action Parser', () => {
 
   it('rejects elementId 0 and negative elementId because element IDs are 1-based', () => {
     expect(() => parseAgentAction(JSON.stringify({ action: 'click', elementId: 0 }))).toThrow(
-      /Browgent element IDs are 1-based positive numbers/
+      /Browgent element IDs are 1-based positive numbers/,
     );
     expect(() => parseAgentAction(JSON.stringify({ action: 'click', elementId: -1 }))).toThrow(
-      /Browgent element IDs are 1-based positive numbers/
+      /Browgent element IDs are 1-based positive numbers/,
     );
-    expect(() => parseAgentAction(JSON.stringify({ action: 'type', elementId: 0, text: 'hello' }))).toThrow(
-      /Browgent element IDs are 1-based positive numbers/
-    );
+    expect(() =>
+      parseAgentAction(JSON.stringify({ action: 'type', elementId: 0, text: 'hello' })),
+    ).toThrow(/Browgent element IDs are 1-based positive numbers/);
   });
 
   it('parses mcp_call action with tool and args', () => {
@@ -199,7 +212,9 @@ describe('Action Parser', () => {
       args: {},
     });
     expect(() => parseAgentAction(JSON.stringify({ action: 'mcp_call' }))).toThrow();
-    expect(() => parseAgentAction(JSON.stringify({ action: 'mcp_call', tool: 'x', args: [1] }))).toThrow();
+    expect(() =>
+      parseAgentAction(JSON.stringify({ action: 'mcp_call', tool: 'x', args: [1] })),
+    ).toThrow();
   });
 });
 
@@ -221,7 +236,9 @@ describe('executeAgentAction', () => {
     expect(mockedDispatchClick).not.toHaveBeenCalled();
 
     // Exactly one click is dispatched — no double-fire through the CDP fallback.
-    const messageTypes = sendMessage.mock.calls.map((call) => (call[1] as Record<string, unknown>).type);
+    const messageTypes = sendMessage.mock.calls.map(
+      (call) => (call[1] as Record<string, unknown>).type,
+    );
     expect(messageTypes).toEqual(['CLICK_ELEMENT']);
   });
 
@@ -232,7 +249,7 @@ describe('executeAgentAction', () => {
       TAB_ID,
       expect.objectContaining({ type: 'CLICK_ELEMENT' }),
       { frameId: 0 },
-      expect.any(Function)
+      expect.any(Function),
     );
   });
 
@@ -287,7 +304,7 @@ describe('executeAgentAction', () => {
     const result = await executeAgentAction(
       TAB_ID,
       { action: 'type', elementId: 2, text: 'headphones', pressEnter: false },
-      ELEMENTS
+      ELEMENTS,
     );
 
     expect(result.success).toBe(true);
@@ -297,7 +314,7 @@ describe('executeAgentAction', () => {
     expect(mockedDispatchType).toHaveBeenCalledWith(TAB_ID, 'headphones', false);
     // The fallback must focus the field (click) before typing.
     expect(mockedDispatchClick.mock.invocationCallOrder[0]).toBeLessThan(
-      mockedDispatchType.mock.invocationCallOrder[0]
+      mockedDispatchType.mock.invocationCallOrder[0],
     );
   });
 
@@ -305,7 +322,7 @@ describe('executeAgentAction', () => {
     const result = await executeAgentAction(
       TAB_ID,
       { action: 'scroll', direction: 'up', amount: 300 },
-      ELEMENTS
+      ELEMENTS,
     );
 
     expect(result.success).toBe(true);
@@ -313,14 +330,16 @@ describe('executeAgentAction', () => {
     expect(mockedDispatchScroll).toHaveBeenCalledWith(TAB_ID, -300);
   });
 
-  it('passes a positive delta to dispatchScroll when scrolling down', async () => {
+  it('passes a positive delta to dispatchScroll when scrolling down and reports bottom boundary', async () => {
+    mockedDispatchScroll.mockResolvedValueOnce({ success: true, atBottom: true });
     const result = await executeAgentAction(
       TAB_ID,
       { action: 'scroll', direction: 'down', amount: 300 },
-      ELEMENTS
+      ELEMENTS,
     );
 
     expect(result.success).toBe(true);
+    expect(result.summary).toContain('reached the BOTTOM of the page');
     expect(mockedDispatchScroll).toHaveBeenCalledTimes(1);
     expect(mockedDispatchScroll).toHaveBeenCalledWith(TAB_ID, 300);
   });
@@ -329,7 +348,7 @@ describe('executeAgentAction', () => {
     const result = await executeAgentAction(
       TAB_ID,
       { action: 'navigate', url: 'file:///C:/secret.txt' },
-      ELEMENTS
+      ELEMENTS,
     );
 
     expect(result.success).toBe(false);
@@ -341,7 +360,7 @@ describe('executeAgentAction', () => {
     const result = await executeAgentAction(
       TAB_ID,
       { action: 'navigate', url: 'https://example.com' },
-      ELEMENTS
+      ELEMENTS,
     );
 
     expect(result.success).toBe(true);
@@ -357,7 +376,11 @@ describe('executeAgentAction', () => {
 
   it('executes select_option action via dom message', async () => {
     domResponder = (payload) => {
-      if (payload.type === 'SELECT_OPTION' && payload.elementId === 2 && payload.value === 'OptionA') {
+      if (
+        payload.type === 'SELECT_OPTION' &&
+        payload.elementId === 2 &&
+        payload.value === 'OptionA'
+      ) {
         return { success: true };
       }
       return { success: false, error: 'failed' };
@@ -366,7 +389,7 @@ describe('executeAgentAction', () => {
     const result = await executeAgentAction(
       TAB_ID,
       { action: 'select_option', elementId: 2, value: 'OptionA' },
-      ELEMENTS
+      ELEMENTS,
     );
 
     expect(result.success).toBe(true);
@@ -378,7 +401,7 @@ describe('executeAgentAction', () => {
     const result = await executeAgentAction(
       TAB_ID,
       { action: 'press_key', key: 'Enter' },
-      ELEMENTS
+      ELEMENTS,
     );
 
     expect(result.success).toBe(true);
@@ -396,11 +419,7 @@ describe('executeAgentAction', () => {
       return { success: false };
     };
 
-    const result = await executeAgentAction(
-      TAB_ID,
-      { action: 'hover', elementId: 1 },
-      ELEMENTS
-    );
+    const result = await executeAgentAction(TAB_ID, { action: 'hover', elementId: 1 }, ELEMENTS);
 
     expect(result.success).toBe(true);
     expect(mockedDispatchHover).toHaveBeenCalledWith(TAB_ID, 25, 40);

@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { captureDOMState, extractInteractiveElements, formatElementsForPrompt, MAX_TEXT_EXCERPT_CHARS } from '../../src/content/extractor';
+import {
+  captureDOMState,
+  extractInteractiveElements,
+  formatElementsForPrompt,
+  extractValidationErrors,
+  MAX_TEXT_EXCERPT_CHARS,
+} from '../../src/content/extractor';
 
 describe('DOM Extractor', () => {
   beforeEach(() => {
@@ -42,7 +48,9 @@ describe('DOM Extractor', () => {
 
     expect(formatted).toContain(`[${button?.id}] <button> Submit Order`);
     expect(formatted).toContain(`[${link?.id}] <a> Sign In`);
-    expect(formatted).toContain(`[${input?.id}] <input type="text"> placeholder="Search products..."`);
+    expect(formatted).toContain(
+      `[${input?.id}] <input type="text"> placeholder="Search products..."`,
+    );
     expect(formatted).toContain(`[${textarea?.id}] <textarea> placeholder="Leave comments..."`);
     expect(formatted).toContain(`[${select?.id}] <select>`);
     expect(formatted).toContain(`[${roleButton?.id}] <div role="button"> Custom Button`);
@@ -101,6 +109,37 @@ describe('DOM Extractor', () => {
     expect(formatted).toContain('disabled="true"');
   });
 
+  it('extracts required and invalid states and on-page form validation error alerts', () => {
+    document.body.innerHTML = `
+      <form>
+        <div class="alert-danger" role="alert">Please specify your primary legal advisory domain.</div>
+        <input type="text" id="inp-req" required placeholder="Required field" class="is-invalid" />
+        <select id="sel-req" aria-required="true" aria-invalid="true">
+          <option value="">Choose option</option>
+        </select>
+      </form>
+    `;
+
+    const elements = extractInteractiveElements(document);
+    const input = elements.find((e) => e.placeholder === 'Required field');
+    const select = elements.find((e) => e.tagName === 'SELECT');
+
+    expect(input?.required).toBe(true);
+    expect(input?.invalid).toBe(true);
+    expect(select?.required).toBe(true);
+    expect(select?.invalid).toBe(true);
+
+    const errors = extractValidationErrors(document);
+    expect(errors.length).toBe(1);
+    expect(errors[0]).toContain('Please specify your primary legal advisory domain');
+
+    const domState = captureDOMState(document);
+    expect(domState.validationErrors?.length).toBe(1);
+    expect(domState.formattedPrompt).toContain('[ON-PAGE FORM VALIDATION ERRORS DETECTED]');
+    expect(domState.formattedPrompt).toContain('required="true"');
+    expect(domState.formattedPrompt).toContain('invalid="true"');
+  });
+
   it('extracts input labels from <label for="..."> and fieldset legends for radio groups', () => {
     document.body.innerHTML = `
       <form>
@@ -120,7 +159,12 @@ describe('DOM Extractor', () => {
 
     const elements = extractInteractiveElements(document);
     const input = elements.find((e) => e.tagName === 'INPUT' && e.type === 'text');
-    const radioYes = elements.find((e) => e.tagName === 'INPUT' && e.type === 'radio' && (e.label === 'Yes' || e.text.includes('Yes')));
+    const radioYes = elements.find(
+      (e) =>
+        e.tagName === 'INPUT' &&
+        e.type === 'radio' &&
+        (e.label === 'Yes' || e.text.includes('Yes')),
+    );
 
     expect(input?.label).toContain('How many years of experience in project leadership');
     expect(radioYes?.group).toContain('Have you managed multiple projects simultaneously');
@@ -147,7 +191,9 @@ describe('DOM Extractor', () => {
 
     const state = captureDOMState(document);
     expect(state.activeModalTitle).toBe('Apply to Academian Inc');
-    expect(state.formattedPrompt).toContain('[ACTIVE MODAL DIALOG DETECTED: "Apply to Academian Inc"]');
+    expect(state.formattedPrompt).toContain(
+      '[ACTIVE MODAL DIALOG DETECTED: "Apply to Academian Inc"]',
+    );
     expect(state.formattedPrompt).toContain('Review');
     expect(state.formattedPrompt).toContain('label="Your delivery leadership experience"');
 
@@ -173,7 +219,9 @@ describe('DOM Extractor', () => {
     `;
 
     const elements = extractInteractiveElements(document);
-    const editor = elements.find((e) => e.role === 'textbox' || e.placeholder?.includes('Enter your answer'));
+    const editor = elements.find(
+      (e) => e.role === 'textbox' || e.placeholder?.includes('Enter your answer'),
+    );
 
     expect(editor).toBeDefined();
     expect(editor?.placeholder).toBe('Enter your answer here...');
@@ -183,7 +231,9 @@ describe('DOM Extractor', () => {
     const formatted = formatElementsForPrompt(elements);
     expect(formatted).toContain('role="textbox"');
     expect(formatted).toContain('placeholder="Enter your answer here..."');
-    expect(formatted).toContain('label="Question #1 - Have you worked with digital product engineering providers?"');
+    expect(formatted).toContain(
+      'label="Question #1 - Have you worked with digital product engineering providers?"',
+    );
   });
 
   it('extracts Google and OAuth account selection tiles as clickable buttons', () => {

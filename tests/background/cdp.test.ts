@@ -8,7 +8,8 @@ let cdp: CdpModule;
 let debuggerAttach: ReturnType<typeof vi.fn>;
 let debuggerDetach: ReturnType<typeof vi.fn>;
 let debuggerSendCommand: ReturnType<typeof vi.fn>;
-let onEventListener: ((source: chrome.debugger.Debuggee, method: string, params?: unknown) => void) | null = null;
+let onEventListener:
+  ((source: chrome.debugger.Debuggee, method: string, params?: unknown) => void) | null = null;
 let addEventListenerMock: ReturnType<typeof vi.fn>;
 let removeEventListenerMock: ReturnType<typeof vi.fn>;
 
@@ -76,7 +77,7 @@ describe('CDP attach / detach', () => {
   // (lowercase 'a'), so the check in src/background/cdp.ts must be case-insensitive.
   it('treats Chrome\'s real lowercase "already attached" rejection as success', async () => {
     debuggerAttach.mockRejectedValue(
-      new Error('Another debugger is already attached to the tab with id 5.')
+      new Error('Another debugger is already attached to the tab with id 5.'),
     );
 
     await expect(cdp.attachDebugger(5)).resolves.toBeUndefined();
@@ -110,7 +111,12 @@ describe('CDP enableDialogHandling', () => {
     const disposer = await cdp.enableDialogHandling(5, (d) => dialogs.push(d));
 
     expect(debuggerAttach).toHaveBeenCalledWith({ tabId: 5 }, '1.3');
-    expect(debuggerSendCommand).toHaveBeenCalledWith({ tabId: 5 }, 'Page.enable', {}, expect.any(Function));
+    expect(debuggerSendCommand).toHaveBeenCalledWith(
+      { tabId: 5 },
+      'Page.enable',
+      {},
+      expect.any(Function),
+    );
     expect(addEventListenerMock).toHaveBeenCalled();
     expect(onEventListener).toBeDefined();
 
@@ -124,7 +130,7 @@ describe('CDP enableDialogHandling', () => {
       { tabId: 5 },
       'Page.handleJavaScriptDialog',
       { accept: true },
-      expect.any(Function)
+      expect.any(Function),
     );
     expect(dialogs).toHaveLength(1);
     expect(dialogs[0]).toEqual({ type: 'alert', message: 'Notice to user' });
@@ -139,7 +145,7 @@ describe('CDP enableDialogHandling', () => {
       { tabId: 5 },
       'Page.handleJavaScriptDialog',
       { accept: true },
-      expect.any(Function)
+      expect.any(Function),
     );
     expect(dialogs[1]).toEqual({ type: 'beforeunload', message: 'Changes may not be saved' });
 
@@ -161,7 +167,7 @@ describe('CDP enableDialogHandling', () => {
       { tabId: 7 },
       'Page.handleJavaScriptDialog',
       { accept: false },
-      expect.any(Function)
+      expect.any(Function),
     );
     expect(dialogs[0]).toEqual({ type: 'confirm', message: 'Are you sure you want to delete?' });
 
@@ -175,7 +181,7 @@ describe('CDP enableDialogHandling', () => {
       { tabId: 7 },
       'Page.handleJavaScriptDialog',
       { accept: false },
-      expect.any(Function)
+      expect.any(Function),
     );
     expect(dialogs[1]).toEqual({ type: 'prompt', message: 'Enter your name:' });
 
@@ -198,10 +204,35 @@ describe('CDP enableDialogHandling', () => {
       expect.anything(),
       'Page.handleJavaScriptDialog',
       expect.anything(),
-      expect.anything()
+      expect.anything(),
     );
     expect(dialogs).toHaveLength(0);
 
     disposer();
+  });
+
+  it('dispatchScroll returns boundary and delta feedback from in-tab content script', async () => {
+    const tabsSendMessage = vi.fn().mockResolvedValueOnce({
+      success: true,
+      actualDeltaY: 500,
+      atBottom: true,
+      atTop: false,
+    });
+    vi.stubGlobal('chrome', {
+      debugger: {
+        attach: debuggerAttach,
+        detach: debuggerDetach,
+        sendCommand: debuggerSendCommand,
+        onDetach: { addListener: vi.fn(), removeListener: vi.fn() },
+        onEvent: { addListener: addEventListenerMock, removeListener: removeEventListenerMock },
+      },
+      runtime: { lastError: undefined },
+      tabs: { sendMessage: tabsSendMessage, update: vi.fn() },
+    });
+
+    const res = await cdp.dispatchScroll(5, 500);
+    expect(res.success).toBe(true);
+    expect(res.atBottom).toBe(true);
+    expect(res.actualDeltaY).toBe(500);
   });
 });

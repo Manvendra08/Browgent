@@ -53,7 +53,7 @@ describe('AgentController loop detector', () => {
       });
 
     mockedQueryLLMRaw.mockResolvedValue(
-      '```json\n{"confirmed": true, "evidence": "Completed successfully"}\n```'
+      '```json\n{"confirmed": true, "evidence": "Completed successfully"}\n```',
     );
 
     const controller = new AgentController({
@@ -70,7 +70,7 @@ describe('AgentController loop detector', () => {
     const warnings = events.filter(
       (e) =>
         e.type === 'action_result' &&
-        (e.data as { error?: string }).error?.includes('Loop warning')
+        (e.data as { error?: string }).error?.includes('Loop warning'),
     );
     expect(warnings.length).toBe(2);
 
@@ -109,7 +109,44 @@ describe('AgentController loop detector', () => {
     const result = await controller.run(1, 'loop abort test', (event) => events.push(event));
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('Loop detected: Agent repeated the exact action 3 times consecutively');
+    expect(result.error).toContain(
+      'Loop detected: Agent repeated the exact action 3 times consecutively',
+    );
     expect(controller.getStatus()).toBe('failed');
+  });
+
+  it('detects multi-action batch cycles (e.g. sequence of 3 actions repeated 3 times)', () => {
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+    });
+
+    // Sequence: A, B, C repeated 3 times
+    const a = { action: 'click' as const, elementId: 10 };
+    const b = { action: 'click' as const, elementId: 20 };
+    const c = { action: 'click' as const, elementId: 30 };
+
+    expect(controller.checkLoop(a)).toBe(false);
+    expect(controller.checkLoop(b)).toBe(false);
+    expect(controller.checkLoop(c)).toBe(false);
+
+    expect(controller.checkLoop(a)).toBe(false);
+    expect(controller.checkLoop(b)).toBe(false);
+    expect(controller.checkLoop(c)).toBe(false);
+
+    expect(controller.checkLoop(a)).toBe(false);
+    expect(controller.checkLoop(b)).toBe(false);
+    expect(controller.checkLoop(c)).toBe(true); // Loop detected on 3rd cycle completion
+  });
+
+  it('detects excessive consecutive scrolling in the same direction after 5 passes', () => {
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+    });
+
+    const scrollDown = { action: 'scroll' as const, direction: 'down' as const, amount: 500 };
+    for (let i = 0; i < 5; i++) {
+      expect(controller.checkLoop(scrollDown)).toBe(false);
+    }
+    expect(controller.checkLoop(scrollDown)).toBe(true); // 6th consecutive scroll down
   });
 });

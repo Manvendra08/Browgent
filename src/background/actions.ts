@@ -40,7 +40,7 @@ function resolveElementId(obj: Record<string, unknown>, actionName: string): num
   }
   if (candidate < 1) {
     throw new Error(
-      `${actionName} action has invalid elementId [${candidate}]. Browgent element IDs are 1-based positive numbers. Element [0] does not exist.`
+      `${actionName} action has invalid elementId [${candidate}]. Browgent element IDs are 1-based positive numbers. Element [0] does not exist.`,
     );
   }
   return candidate;
@@ -137,7 +137,7 @@ export function parseAgentAction(raw: string): AgentAction {
       const url = typeof obj.url === 'string' ? obj.url.trim() : '';
       if (isRestrictedUrl(url)) {
         throw new Error(
-          `Navigate action blocked: "${url}" targets an internal, local-file or metadata address that the agent must not open`
+          `Navigate action blocked: "${url}" targets an internal, local-file or metadata address that the agent must not open`,
         );
       }
       if (!/^https?:\/\//i.test(url)) {
@@ -201,7 +201,7 @@ export function parseAgentAction(raw: string): AgentAction {
 
 function sendDomAction(
   tabId: number,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
 ): Promise<{ success: boolean; error?: string; rect?: ElementRectPayload }> {
   return new Promise((resolve) => {
     if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.sendMessage) {
@@ -232,7 +232,10 @@ function elementCenter(rect: ElementRectPayload): { x: number; y: number } {
   };
 }
 
-async function getFreshElementRect(tabId: number, elementId: number): Promise<ElementRectPayload | null> {
+async function getFreshElementRect(
+  tabId: number,
+  elementId: number,
+): Promise<ElementRectPayload | null> {
   const result = await sendDomAction(tabId, { type: 'GET_ELEMENT_RECT', elementId });
   return result.success && result.rect ? result.rect : null;
 }
@@ -240,16 +243,19 @@ async function getFreshElementRect(tabId: number, elementId: number): Promise<El
 export async function executeAgentAction(
   tabId: number,
   action: AgentAction,
-  elements: PerceivedElement[]
+  elements: PerceivedElement[],
 ): Promise<{ success: boolean; error?: string; isTerminal?: boolean; summary?: string }> {
   try {
     switch (action.action) {
       case 'click': {
         const target = elements.find((el) => el.id === action.elementId);
         if (!target) {
-          const sample = elements.slice(0, 8).map((e) => e.id).join(', ');
+          const sample = elements
+            .slice(0, 8)
+            .map((e) => e.id)
+            .join(', ');
           throw new Error(
-            `Element with id [${action.elementId}] not found in perception tree${sample ? ` (available IDs on page: [${sample}${elements.length > 8 ? ', ...' : ''}])` : ''}`
+            `Element with id [${action.elementId}] not found in perception tree${sample ? ` (available IDs on page: [${sample}${elements.length > 8 ? ', ...' : ''}])` : ''}`,
           );
         }
 
@@ -270,16 +276,22 @@ export async function executeAgentAction(
         });
 
         // If the message channel closed or reported bfcache because the click initiated page navigation:
-        if (!domResult.success && typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.get === 'function') {
+        if (
+          !domResult.success &&
+          typeof chrome !== 'undefined' &&
+          chrome.tabs &&
+          typeof chrome.tabs.get === 'function'
+        ) {
           try {
             const currentTab = await chrome.tabs.get(tabId);
-            const urlChanged = Boolean(initialUrl && currentTab?.url && currentTab.url !== initialUrl);
+            const urlChanged = Boolean(
+              initialUrl && currentTab?.url && currentTab.url !== initialUrl,
+            );
             const isLoading = currentTab?.status === 'loading';
             const isBfCacheError = Boolean(
-              domResult.error && (
-                domResult.error.includes('back/forward cache') ||
-                domResult.error.includes('message channel closed')
-              )
+              domResult.error &&
+              (domResult.error.includes('back/forward cache') ||
+                domResult.error.includes('message channel closed')),
             );
             if (urlChanged || isLoading || isBfCacheError) {
               return { success: true };
@@ -296,10 +308,17 @@ export async function executeAgentAction(
         // 2. Fallback: single CDP hardware click (never both — avoids double events)
         const freshRect = await getFreshElementRect(tabId, action.elementId);
         if (!freshRect) {
-          if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.get === 'function') {
+          if (
+            typeof chrome !== 'undefined' &&
+            chrome.tabs &&
+            typeof chrome.tabs.get === 'function'
+          ) {
             try {
               const currentTab = await chrome.tabs.get(tabId);
-              if (currentTab?.status === 'loading' || (initialUrl && currentTab?.url && currentTab.url !== initialUrl)) {
+              if (
+                currentTab?.status === 'loading' ||
+                (initialUrl && currentTab?.url && currentTab.url !== initialUrl)
+              ) {
                 return { success: true };
               }
             } catch {
@@ -321,9 +340,12 @@ export async function executeAgentAction(
       case 'type': {
         const target = elements.find((el) => el.id === action.elementId);
         if (!target) {
-          const sample = elements.slice(0, 8).map((e) => e.id).join(', ');
+          const sample = elements
+            .slice(0, 8)
+            .map((e) => e.id)
+            .join(', ');
           throw new Error(
-            `Element with id [${action.elementId}] not found in perception tree${sample ? ` (available IDs on page: [${sample}${elements.length > 8 ? ', ...' : ''}])` : ''}`
+            `Element with id [${action.elementId}] not found in perception tree${sample ? ` (available IDs on page: [${sample}${elements.length > 8 ? ', ...' : ''}])` : ''}`,
           );
         }
 
@@ -346,16 +368,22 @@ export async function executeAgentAction(
         });
 
         // If typing + Enter initiated page navigation / form submit, handle transition cleanly:
-        if (!domResult.success && typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.get === 'function') {
+        if (
+          !domResult.success &&
+          typeof chrome !== 'undefined' &&
+          chrome.tabs &&
+          typeof chrome.tabs.get === 'function'
+        ) {
           try {
             const currentTab = await chrome.tabs.get(tabId);
-            const urlChanged = Boolean(initialUrl && currentTab?.url && currentTab.url !== initialUrl);
+            const urlChanged = Boolean(
+              initialUrl && currentTab?.url && currentTab.url !== initialUrl,
+            );
             const isLoading = currentTab?.status === 'loading';
             const isBfCacheError = Boolean(
-              domResult.error && (
-                domResult.error.includes('back/forward cache') ||
-                domResult.error.includes('message channel closed')
-              )
+              domResult.error &&
+              (domResult.error.includes('back/forward cache') ||
+                domResult.error.includes('message channel closed')),
             );
             if (urlChanged || isLoading || isBfCacheError) {
               return { success: true };
@@ -399,7 +427,10 @@ export async function executeAgentAction(
         if (domResult.success) {
           return { success: true };
         }
-        return { success: false, error: domResult.error || `Failed to select option on element [${action.elementId}]` };
+        return {
+          success: false,
+          error: domResult.error || `Failed to select option on element [${action.elementId}]`,
+        };
       }
 
       case 'press_key': {
@@ -438,13 +469,32 @@ export async function executeAgentAction(
         }
         return domResult.success
           ? { success: true }
-          : { success: false, error: domResult.error || `Failed to hover element [${action.elementId}]` };
+          : {
+              success: false,
+              error: domResult.error || `Failed to hover element [${action.elementId}]`,
+            };
       }
 
       case 'scroll': {
         const delta = action.direction === 'up' ? -(action.amount || 500) : action.amount || 500;
-        await dispatchScroll(tabId, delta);
-        return { success: true };
+        const scrollRes = await dispatchScroll(tabId, delta);
+        if (action.direction !== 'up' && scrollRes.atBottom) {
+          return {
+            success: true,
+            summary:
+              'Scrolled down: reached the BOTTOM of the page. Do NOT scroll down again; interact with visible inputs, choices, or submit/next buttons.',
+          };
+        }
+        if (action.direction === 'up' && scrollRes.atTop) {
+          return {
+            success: true,
+            summary: 'Scrolled up: reached the TOP of the page.',
+          };
+        }
+        return {
+          success: true,
+          summary: `Scrolled ${action.direction || 'down'} ${action.amount || 500}px`,
+        };
       }
 
       case 'navigate': {

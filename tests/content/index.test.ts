@@ -17,7 +17,7 @@ interface ContentResponse {
 type ContentListener = (
   message: Record<string, unknown>,
   sender: unknown,
-  sendResponse: (response: ContentResponse) => void
+  sendResponse: (response: ContentResponse) => void,
 ) => unknown;
 
 let listener: ContentListener;
@@ -188,7 +188,9 @@ describe('Content script message protocol', () => {
     `;
 
     const elements = extractInteractiveElements(document);
-    const editable = elements.find((el) => el.id && (el.domNode as HTMLElement)?.getAttribute('contenteditable') === 'true');
+    const editable = elements.find(
+      (el) => el.id && (el.domNode as HTMLElement)?.getAttribute('contenteditable') === 'true',
+    );
     expect(editable).toBeDefined();
 
     const editResponse = await send({
@@ -277,6 +279,8 @@ describe('Content script message protocol', () => {
     });
 
     expect(scrollResponse.success).toBe(true);
+    expect(scrollResponse).toHaveProperty('atBottom');
+    expect(scrollResponse).toHaveProperty('atTop');
     expect(scrollSpy).toHaveBeenCalledWith({
       top: 500,
       left: 0,
