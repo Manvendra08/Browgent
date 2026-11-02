@@ -3,6 +3,7 @@ import {
   extractInteractiveElements,
   assignElementId,
   isKnownElement,
+  getElementById,
 } from '../../src/content/extractor';
 
 describe('Element identity', () => {
@@ -54,5 +55,22 @@ describe('Element identity', () => {
     const first = assignElementId(document, node);
     const second = assignElementId(document, node);
     expect(first).toBe(second);
+  });
+
+  it('resolves elements located inside open shadow roots via getElementById', () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    if (typeof host.attachShadow === 'function') {
+      const shadow = host.attachShadow({ mode: 'open' });
+      const shadowBtn = document.createElement('button');
+      shadowBtn.textContent = 'Action Inside Shadow';
+      shadow.appendChild(shadowBtn);
+
+      const id = assignElementId(document, shadowBtn);
+      shadowBtn.setAttribute('data-browgent-id', id.toString());
+
+      const resolved = getElementById(document, id);
+      expect(resolved).toBe(shadowBtn);
+    }
   });
 });

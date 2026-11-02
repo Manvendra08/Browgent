@@ -49,6 +49,7 @@ const INTERACTIVE_SELECTORS = [
 
 interface ElementIdState {
   nodeIds: WeakMap<Element, number>;
+  idNodes: Map<number, Element>;
   nextId: number;
   lastNodes: Element[];
 }
@@ -58,7 +59,12 @@ const idStates = new WeakMap<Document, ElementIdState>();
 function getIdState(doc: Document): ElementIdState {
   let state = idStates.get(doc);
   if (!state) {
-    state = { nodeIds: new WeakMap<Element, number>(), nextId: 1, lastNodes: [] };
+    state = {
+      nodeIds: new WeakMap<Element, number>(),
+      idNodes: new Map<number, Element>(),
+      nextId: 1,
+      lastNodes: [],
+    };
     idStates.set(doc, state);
   }
   return state;
@@ -71,8 +77,54 @@ function resetIfPageReplaced(state: ElementIdState): void {
     // climbing so a stale id from the previous DOM can never silently resolve to a
     // different element (it fails loudly instead).
     state.nodeIds = new WeakMap<Element, number>();
+    state.idNodes = new Map<number, Element>();
     state.lastNodes = [];
   }
+}
+
+/**
+ * Traverses the DOM tree and all nested open ShadowRoots to collect elements matching a selector.
+ */
+export function querySelectorAllDeep(
+  selector: string,
+  root: Document | Element | ShadowRoot = document,
+): Element[] {
+  const matches: Element[] = [];
+  const seen = new Set<Element>();
+
+  function walk(node: Document | Element | ShadowRoot) {
+    try {
+      const found = node.querySelectorAll(selector);
+      for (let i = 0; i < found.length; i++) {
+        const el = found[i];
+        if (!seen.has(el)) {
+          seen.add(el);
+          matches.push(el);
+        }
+      }
+    } catch {
+      // Selector not supported in this root
+    }
+
+    if (node instanceof Element && node.shadowRoot) {
+      walk(node.shadowRoot);
+    }
+
+    try {
+      const descendants = node.querySelectorAll('*');
+      for (let i = 0; i < descendants.length; i++) {
+        const child = descendants[i];
+        if (child.shadowRoot) {
+          walk(child.shadowRoot);
+        }
+      }
+    } catch {
+      // In non-DOM testing environments
+    }
+  }
+
+  walk(root);
+  return matches;
 }
 
 function viewportPriority(rect: ElementRect, doc: Document): number {
@@ -95,15 +147,35 @@ export function assignElementId(doc: Document, node: Element): number {
   const state = getIdState(doc);
   const existing = state.nodeIds.get(node);
   if (existing !== undefined) {
+    state.idNodes.set(existing, node);
     return existing;
   }
   const id = state.nextId++;
   state.nodeIds.set(node, id);
+  state.idNodes.set(id, node);
   return id;
 }
 
 export function isKnownElement(doc: Document, node: Element, id: number): boolean {
   return getIdState(doc).nodeIds.get(node) === id;
+}
+
+export function getElementById(doc: Document, id: number): HTMLElement | null {
+  const state = getIdState(doc);
+  const node = state.idNodes.get(id);
+  if (node && node.isConnected && state.nodeIds.get(node) === id) {
+    return node as HTMLElement;
+  }
+
+  // Fallback: search deep across all light DOM and shadow roots
+  const candidates = querySelectorAllDeep(`[data-browgent-id="${id}"]`, doc);
+  for (const candidate of candidates) {
+    if (isKnownElement(doc, candidate, id)) {
+      state.idNodes.set(id, candidate);
+      return candidate as HTMLElement;
+    }
+  }
+  return null;
 }
 
 const SENSITIVE_INPUT_TYPES = new Set(['password', 'hidden']);
@@ -235,7 +307,13 @@ export function isElementVisible(el: Element): boolean {
         return false;
       }
     }
-    current = current.parentElement;
+    if (current.parentElement) {
+      current = current.parentElement;
+    } else if (current.parentNode && (current.parentNode as ShadowRoot).host) {
+      current = (current.parentNode as ShadowRoot).host;
+    } else {
+      current = null;
+    }
   }
 
   if (typeof window !== 'undefined' && window.getComputedStyle) {
@@ -266,10 +344,28 @@ export const MODAL_SELECTORS = [
   '[role="alertdialog"]',
   '.artdeco-modal',
   '.jobs-easy-apply-modal',
+  '.modal.show',
+  '.modal.in',
+  '.modal-dialog',
+  '[class*="modal-dialog" i]',
+  '[class*="modal-content" i]',
+  '[class*="modal_dialog" i]',
+  '[class*="modal_content" i]',
+  '[class*="popup-dialog" i]',
+  '[class*="popup-content" i]',
+  '[class*="dialog-box" i]',
+  '[class*="modalContainer" i]',
+  '[class*="modal-box" i]',
+  '.ui-dialog:not(.ui-dialog-hidden)',
+  '.mat-dialog-container',
+  '.mat-mdc-dialog-container',
+  '.ant-modal',
+  '.ant-modal-content',
+  '[class*="swal2-modal" i]',
 ].join(', ');
 
 export function findActiveModal(doc: Document = document): Element | null {
-  const candidates = Array.from(doc.querySelectorAll(MODAL_SELECTORS));
+  const candidates = querySelectorAllDeep(MODAL_SELECTORS, doc);
   for (const candidate of candidates) {
     if (isElementVisible(candidate)) {
       if (candidate.getBoundingClientRect) {
@@ -450,7 +546,7 @@ export function findAssociatedLabel(
 
 export function extractInteractiveElements(doc: Document = document): PerceivedElement[] {
   const elements: PerceivedElement[] = [];
-  const rawNodes = Array.from(doc.querySelectorAll(INTERACTIVE_SELECTORS));
+  const rawNodes = querySelectorAllDeep(INTERACTIVE_SELECTORS, doc);
   const idState = getIdState(doc);
   resetIfPageReplaced(idState);
 
@@ -565,6 +661,13 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
     const ariaChecked = node.getAttribute('aria-checked') || undefined;
     const ariaSelected = node.getAttribute('aria-selected') || undefined;
     const ariaCurrent = node.getAttribute('aria-current') || undefined;
+    const ariaExpanded = node.getAttribute('aria-expanded') || undefined;
+    const ariaControls = node.getAttribute('aria-controls') || undefined;
+    const ariaHasPopup = node.getAttribute('aria-haspopup') || undefined;
+    const isShadow =
+      (typeof node.getRootNode === 'function' &&
+        node.getRootNode() instanceof ShadowRoot) ||
+      undefined;
     const stateClasses = readStateClasses(node);
 
     const isInsideModal = Boolean(activeModal && activeModal.contains(node));
@@ -629,6 +732,10 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
       ariaChecked,
       ariaSelected,
       ariaCurrent,
+      ariaExpanded,
+      ariaControls,
+      ariaHasPopup,
+      isShadow,
       stateClasses,
       isModal: isInsideModal,
       priority: isInsideModal ? -1 : viewportPriority(rect, doc),
@@ -643,8 +750,9 @@ export function extractInteractiveElements(doc: Document = document): PerceivedE
 }
 
 export function extractValidationErrors(doc: Document): string[] {
-  const errorElements = doc.querySelectorAll(
+  const errorElements = querySelectorAllDeep(
     '[role="alert"], .alert-danger, .invalid-feedback, .error-message, .field-validation-error, [aria-live="assertive"], .form-error',
+    doc,
   );
   const messages: string[] = [];
   errorElements.forEach((el) => {
@@ -751,6 +859,18 @@ export function formatElementsForPrompt(
     if (el.ariaCurrent) {
       parts.push(` aria-current="${el.ariaCurrent}"`);
     }
+    if (el.ariaExpanded) {
+      parts.push(` aria-expanded="${el.ariaExpanded}"`);
+    }
+    if (el.ariaControls) {
+      parts.push(` aria-controls="${el.ariaControls}"`);
+    }
+    if (el.ariaHasPopup) {
+      parts.push(` aria-haspopup="${el.ariaHasPopup}"`);
+    }
+    if (el.isShadow) {
+      parts.push(' [shadow]');
+    }
     if (el.stateClasses) {
       parts.push(` state="${el.stateClasses}"`);
     }
@@ -811,6 +931,22 @@ function collectCleanText(root: Element): string {
       }
       node = walker.nextNode();
     }
+  }
+
+  // Also collect text from open shadow roots of descendants
+  try {
+    const shadowHosts = root.querySelectorAll('*');
+    for (let i = 0; i < shadowHosts.length; i++) {
+      const host = shadowHosts[i];
+      if (host.shadowRoot) {
+        const shadowText = collectCleanText(host.shadowRoot as unknown as Element);
+        if (shadowText) {
+          pieces.push(shadowText);
+        }
+      }
+    }
+  } catch {
+    // Ignore in environments without full DOM selector support
   }
 
   return pieces.join(' ');

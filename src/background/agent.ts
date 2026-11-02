@@ -8,7 +8,7 @@ import { ToolRegistry } from './tools/registry';
 import { McpClient } from './mcp/client';
 import { Skill } from './skills/types';
 import { AttachedFile, formatAttachedFilesForPrompt } from './files/parser';
-import { detachDebugger, enableDialogHandling, DialogDisposer } from './cdp';
+import { detachDebugger, enableDialogHandling, DialogDisposer, captureScreenshotCdp } from './cdp';
 import { isRestrictedUrl, RESTRICTED_URL_HINT } from './restricted';
 
 export type AgentStatus = 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'stopped';
@@ -484,6 +484,13 @@ export class AgentController {
 
         // 3. Query LLM (with 1 automatic retry on transient timeout/network glitch)
         const tLlmStart = Date.now();
+        onProgress({
+          type: 'thought',
+          data: {
+            step: this.currentStep,
+            thought: `Analyzing page and querying ${this.llmConfig.model}...`,
+          },
+        });
         let decision: AgentDecision;
         try {
           decision = await queryLLM(this.llmConfig, messages, this.runAbortController?.signal);
@@ -575,7 +582,10 @@ export class AgentController {
             const actionKey = JSON.stringify(action);
             if (!this.loopWarningsIssued.has(actionKey)) {
               this.loopWarningsIssued.add(actionKey);
-              const warning = `Loop warning: Action ${actionKey} was repeated 3 times without effect. If a modal dialog or form is open, do NOT click to open it again; interact with its form inputs, radio options, or submit/review buttons directly. Choose a different element or action.`;
+              let warning = `Loop warning: Action ${actionKey} was repeated 3 times without effect. If a modal dialog or form is open, do NOT click to open it again; interact with its form inputs, radio options, or submit/review buttons directly. Choose a different element or action.`;
+              if (action.action === 'type') {
+                warning = `Loop warning: Action ${actionKey} was repeated 3 times without effect on the page. The text was not submitted or the Enter key was not accepted! Do NOT type the exact same text again. Instead, look for a 'Send' or 'Submit' button on the page (e.g. paper airplane, arrow icon, or 'Send' button) and CLICK it directly, or check if the page is currently generating/loading and use 'wait'.`;
+              }
               this.history.push({
                 step: this.currentStep,
                 thought: decision.thought,
@@ -1022,37 +1032,46 @@ ${fileSection}`;
   }
 
   private async captureViewportScreenshot(): Promise<string | null> {
-    if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.captureVisibleTab) {
+    if (typeof chrome === 'undefined') {
       return null;
     }
-    let windowId: number | undefined;
-    if (this.currentTabId && typeof chrome.tabs.get === 'function') {
-      try {
-        const tab = await chrome.tabs.get(this.currentTabId);
-        windowId = tab.windowId;
-      } catch {
-        // use default window
+    let rawDataUrl: string | null = null;
+
+    if (chrome.tabs && chrome.tabs.captureVisibleTab) {
+      let windowId: number | undefined;
+      if (this.currentTabId && typeof chrome.tabs.get === 'function') {
+        try {
+          const tab = await chrome.tabs.get(this.currentTabId);
+          windowId = tab.windowId;
+        } catch {
+          // use default window
+        }
       }
+
+      rawDataUrl = await new Promise<string | null>((resolve) => {
+        try {
+          const callback = (dataUrl?: string) => {
+            if (chrome.runtime.lastError || !dataUrl) {
+              resolve(null);
+            } else {
+              resolve(dataUrl);
+            }
+          };
+          if (typeof windowId === 'number') {
+            chrome.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 65 }, callback);
+          } else {
+            chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 65 }, callback);
+          }
+        } catch {
+          resolve(null);
+        }
+      });
     }
 
-    const rawDataUrl = await new Promise<string | null>((resolve) => {
-      try {
-        const callback = (dataUrl?: string) => {
-          if (chrome.runtime.lastError || !dataUrl) {
-            resolve(null);
-          } else {
-            resolve(dataUrl);
-          }
-        };
-        if (typeof windowId === 'number') {
-          chrome.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 65 }, callback);
-        } else {
-          chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 65 }, callback);
-        }
-      } catch {
-        resolve(null);
-      }
-    });
+    // Fallback: If chrome.tabs.captureVisibleTab returned null (e.g. background tab or headless), try CDP
+    if (!rawDataUrl && this.currentTabId) {
+      rawDataUrl = await captureScreenshotCdp(this.currentTabId, 65);
+    }
 
     if (!rawDataUrl) return null;
     return downscaleScreenshot(rawDataUrl, 1280, 0.65);
@@ -1136,6 +1155,15 @@ INSTRUCTIONS:
     - All interactive element IDs in Browgent are 1-based positive integers (e.g. [1], [2], [3]...). There is NEVER an element [0]. Never guess or hallucinate elementId: 0.
     - When selecting an account on a Google / Firebase / OAuth sign-in screen, click the specific account card/row matching the desired user or email. Look for its 1-based element ID in the INTERACTIVE ELEMENTS list (e.g. matching your email or name).
     - If an authentication popup opened, Browgent automatically tracks and reads the active popup window.
+14. FOR AI CHAT INTERFACES & CONVERSATIONAL WEBSITES (e.g. Google Gemini, ChatGPT, Claude, Perplexity):
+15. FOR CLOUD CONSOLES, NAVIGATION MENUS, HAMBURGER BUTTONS & ACCORDIONS (e.g. Oracle Cloud, AWS, Azure, GCP):
+    - Check the element's aria-expanded attribute!
+    - If a menu button, hamburger icon, or drawer toggle has aria-expanded="true", it is ALREADY OPEN. Do NOT click it again! Clicking an expanded menu button will toggle it closed/collapsed.
+    - Instead, look for the target links inside the open menu, or scroll the drawer.
+    - FAST PATH: In complex cloud consoles (OCI, AWS, Azure), prefer using the global search input bar at the top of the page (e.g. typing "Virtual Cloud Networks" with pressEnter: true) rather than navigating through multi-tiered nested flyout drawers.
+    - When sending a message in a chat box, you can use "pressEnter: true" on the input element, OR batch it with clicking the 'Send' / submit button (e.g. [button] "Send message" or send icon).
+    - If a type action with pressEnter: true does not submit or clear the input box, ALWAYS find and click the visible "Send" button on the next step instead of repeating the type action.
+    - Streaming responses: AI chat interfaces stream answers over several seconds. If a response ends mid-sentence or an active "Stop" / "Stop generating" button is visible, the AI is STILL GENERATING. Do NOT try to send another prompt or assume the response was cut off; issue a "wait" action (e.g. 5-10 seconds) until generation finishes and the input becomes active.
 
 RESPONSE FORMAT:
 You MUST respond with a valid JSON block enclosed in \`\`\`json ... \`\`\`:

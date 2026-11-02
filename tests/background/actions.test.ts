@@ -318,6 +318,24 @@ describe('executeAgentAction', () => {
     );
   });
 
+  it('dispatches native Enter via CDP when domResult indicates nativeEnter', async () => {
+    domResponder = (payload) => {
+      if (payload.type === 'TYPE_ELEMENT') {
+        return { success: true, nativeEnter: true };
+      }
+      return { success: false, error: 'unexpected message' };
+    };
+
+    const result = await executeAgentAction(
+      TAB_ID,
+      { action: 'type', elementId: 2, text: 'prompt for gemini', pressEnter: true },
+      ELEMENTS,
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockedDispatchKeyPress).toHaveBeenCalledWith(TAB_ID, 'Enter');
+  });
+
   it('passes a negative delta to dispatchScroll when scrolling up', async () => {
     const result = await executeAgentAction(
       TAB_ID,

@@ -24,6 +24,10 @@ export interface PerceivedElement {
   ariaChecked?: string;
   ariaSelected?: string;
   ariaCurrent?: string;
+  ariaExpanded?: string;
+  ariaControls?: string;
+  ariaHasPopup?: string;
+  isShadow?: boolean;
   stateClasses?: string;
   isModal?: boolean;
   priority?: number;

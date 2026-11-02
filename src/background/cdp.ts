@@ -276,3 +276,25 @@ export async function enableDialogHandling(
     }
   };
 }
+
+export async function captureScreenshotCdp(
+  tabId: number,
+  quality = 65,
+): Promise<string | null> {
+  if (typeof chrome === 'undefined' || !chrome.debugger) {
+    return null;
+  }
+  try {
+    await attachDebugger(tabId);
+    const result = (await sendCdpCommand(tabId, 'Page.captureScreenshot', {
+      format: 'jpeg',
+      quality,
+    })) as { data?: string } | undefined;
+    if (result && result.data) {
+      return `data:image/jpeg;base64,${result.data}`;
+    }
+  } catch (err: unknown) {
+    console.debug(`[Browgent CDP] Page.captureScreenshot failed for tab ${tabId}:`, err);
+  }
+  return null;
+}

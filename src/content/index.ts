@@ -1,4 +1,4 @@
-import { captureDOMState, isKnownElement, findActiveModal } from './extractor';
+import { captureDOMState, findActiveModal, getElementById } from './extractor';
 import {
   drawElementBadges,
   clearElementBadges,
@@ -21,13 +21,7 @@ if (typeof window !== 'undefined') {
 }
 
 function resolveOwnedElement(elementId: number): HTMLElement | null {
-  const candidates = document.querySelectorAll(`[data-browgent-id="${elementId}"]`);
-  for (const candidate of Array.from(candidates)) {
-    if (isKnownElement(document, candidate, elementId)) {
-      return candidate as HTMLElement;
-    }
-  }
-  return null;
+  return getElementById(document, elementId);
 }
 
 function elementRect(el: Element): { x: number; y: number; width: number; height: number } {
@@ -346,6 +340,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         targetInput.contentEditable === 'true' ||
         targetInput.getAttribute('contenteditable') === 'true' ||
         targetInput.getAttribute('role') === 'textbox';
+      const hasStandardForm = (targetInput instanceof HTMLInputElement || targetInput instanceof HTMLTextAreaElement) && Boolean(targetInput.form);
+      const requiresNativeEnter = Boolean(message.pressEnter) && (!hasStandardForm || isEditable);
+
       if (isEditable) {
         try {
           const selection = window.getSelection();
@@ -368,7 +365,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
         targetInput.dispatchEvent(new Event('input', { bubbles: true }));
         targetInput.dispatchEvent(new Event('change', { bubbles: true }));
-        targetInput.dispatchEvent(new Event('blur', { bubbles: true }));
+        if (!message.pressEnter) {
+          targetInput.dispatchEvent(new Event('blur', { bubbles: true }));
+        }
       } else if (targetInput instanceof HTMLInputElement || targetInput instanceof HTMLTextAreaElement) {
         const proto = targetInput instanceof HTMLInputElement ? window.HTMLInputElement.prototype : window.HTMLTextAreaElement.prototype;
         const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
@@ -387,25 +386,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
         targetInput.dispatchEvent(new Event('input', { bubbles: true }));
         targetInput.dispatchEvent(new Event('change', { bubbles: true }));
-        targetInput.dispatchEvent(new Event('blur', { bubbles: true }));
+        if (!message.pressEnter) {
+          targetInput.dispatchEvent(new Event('blur', { bubbles: true }));
+        }
       } else {
         (targetInput as unknown as { value?: string }).value = message.text;
         targetInput.dispatchEvent(new Event('input', { bubbles: true }));
         targetInput.dispatchEvent(new Event('change', { bubbles: true }));
-        targetInput.dispatchEvent(new Event('blur', { bubbles: true }));
+        if (!message.pressEnter) {
+          targetInput.dispatchEvent(new Event('blur', { bubbles: true }));
+        }
       }
 
-      if (message.pressEnter) {
+      if (message.pressEnter && !requiresNativeEnter) {
         targetInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
         targetInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
         targetInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
         if (
-          (targetInput instanceof HTMLInputElement || targetInput instanceof HTMLTextAreaElement) &&
-          targetInput.form &&
-          typeof targetInput.form.requestSubmit === 'function'
+          hasStandardForm &&
+          typeof (targetInput as HTMLInputElement).form?.requestSubmit === 'function'
         ) {
           try {
-            targetInput.form.requestSubmit();
+            (targetInput as HTMLInputElement).form?.requestSubmit();
           } catch {
             // ignore validation errors
           }
@@ -416,6 +418,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       const domRect = targetInput.getBoundingClientRect();
       sendResponse({
         success: true,
+        nativeEnter: requiresNativeEnter,
         rect: {
           x: Math.round(domRect.x || domRect.left || 0),
           y: Math.round(domRect.y || domRect.top || 0),

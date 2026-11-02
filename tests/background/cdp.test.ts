@@ -235,4 +235,34 @@ describe('CDP enableDialogHandling', () => {
     expect(res.atBottom).toBe(true);
     expect(res.actualDeltaY).toBe(500);
   });
+
+  it('captureScreenshotCdp sends Page.captureScreenshot and returns data URL', async () => {
+    debuggerSendCommand = vi.fn((_target, method, _params, cb) => {
+      if (method === 'Page.captureScreenshot' && cb) {
+        cb({ data: 'base64EncodedJpegBytes' });
+      } else if (cb) {
+        cb({});
+      }
+    });
+    vi.stubGlobal('chrome', {
+      debugger: {
+        attach: debuggerAttach,
+        detach: debuggerDetach,
+        sendCommand: debuggerSendCommand,
+        onDetach: { addListener: vi.fn(), removeListener: vi.fn() },
+        onEvent: { addListener: addEventListenerMock, removeListener: removeEventListenerMock },
+      },
+      runtime: { lastError: undefined },
+      tabs: { sendMessage: vi.fn(), update: vi.fn() },
+    });
+
+    const shot = await cdp.captureScreenshotCdp(5, 65);
+    expect(shot).toBe('data:image/jpeg;base64,base64EncodedJpegBytes');
+    expect(debuggerSendCommand).toHaveBeenCalledWith(
+      { tabId: 5 },
+      'Page.captureScreenshot',
+      { format: 'jpeg', quality: 65 },
+      expect.any(Function),
+    );
+  });
 });

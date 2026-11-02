@@ -451,8 +451,7 @@ describe('Agent Controller', () => {
       it('sends WAIT_FOR_QUIET to content script and proceeds when resolved', async () => {
         const prevEnv = process.env.NODE_ENV;
         // Temporarily mutate test env to execute real stabilizePage branch
-        // @ts-expect-error mutating test env for targeted test
-        process.env.NODE_ENV = 'production';
+        (process.env as Record<string, string>).NODE_ENV = 'production';
 
         const sendMessageMock = vi.fn().mockImplementation((_tabId, msg, cb) => {
           if (msg.type === 'WAIT_FOR_QUIET') {

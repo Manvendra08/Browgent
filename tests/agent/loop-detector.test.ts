@@ -149,4 +149,44 @@ describe('AgentController loop detector', () => {
     }
     expect(controller.checkLoop(scrollDown)).toBe(true); // 6th consecutive scroll down
   });
+
+  it('issues a specialized warning for repeating type actions advising to look for Send button', async () => {
+    mockedQueryLLM
+      .mockResolvedValueOnce({
+        thought: 'Type 1',
+        action: { action: 'type', elementId: 1, text: 'hello', pressEnter: true },
+      })
+      .mockResolvedValueOnce({
+        thought: 'Type 2',
+        action: { action: 'type', elementId: 1, text: 'hello', pressEnter: true },
+      })
+      .mockResolvedValueOnce({
+        thought: 'Type 3',
+        action: { action: 'type', elementId: 1, text: 'hello', pressEnter: true },
+      })
+      .mockResolvedValueOnce({
+        thought: 'Finish',
+        action: { action: 'finish', summary: 'Done' },
+      });
+
+    mockedQueryLLMRaw.mockResolvedValue(
+      '```json\n{"confirmed": true, "evidence": "Done"}\n```',
+    );
+
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 5,
+    });
+
+    const events: Array<{ type: string; data?: unknown }> = [];
+    await controller.run(1, 'type loop test', (event) => events.push(event));
+
+    const warning = events.find(
+      (e) =>
+        e.type === 'action_result' &&
+        (e.data as { error?: string }).error?.includes('Send'),
+    );
+    expect(warning).toBeDefined();
+    expect((warning?.data as { error: string }).error).toContain('Enter key was not accepted');
+  });
 });

@@ -26,6 +26,112 @@ export function parseModelResponse(rawContent: string): AgentDecision {
   }
 }
 
+export function tryParseJson(raw: string): unknown {
+  const trimmed = raw.trim();
+
+  // 1. Fast path: native JSON.parse
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // continue to repair heuristics
+  }
+
+  // 2. Clean single-line (//...) and multi-line (/*...*/) comments and trailing commas
+  let cleaned = trimmed
+    .replace(/\/\/[^\r\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/,\s*([}\]])/g, '$1')
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // continue
+  }
+
+  // 3. Handle unescaped double quotes inside "thought" value:
+  // e.g. {"thought": "The Start button was clicked. The page now says "Select Language" ...", "action": { ... }}
+  const actionKeyMatch = cleaned.match(/,\s*"(actions?)"\s*:\s*([\s\S]+)$/i);
+  if (actionKeyMatch && actionKeyMatch.index !== undefined) {
+    const thoughtPart = cleaned.substring(0, actionKeyMatch.index);
+    const actionKey = actionKeyMatch[1];
+    let actionPart = actionKeyMatch[2].trim();
+
+    // If actionPart ends with the outer closing brace '}', strip it
+    if (actionPart.endsWith('}')) {
+      actionPart = actionPart.slice(0, -1).trim();
+    }
+
+    try {
+      const parsedActionValue = JSON.parse(actionPart.replace(/,\s*([}\]])/g, '$1'));
+      let extractedThought = '';
+      const thoughtValMatch = thoughtPart.match(/"thought"\s*:\s*"([\s\S]*)/i);
+      if (thoughtValMatch) {
+        extractedThought = thoughtValMatch[1].replace(/"\s*$/, '').trim();
+      }
+      return {
+        thought: extractedThought || 'Executing recovered action',
+        [actionKey]: parsedActionValue,
+      };
+    } catch {
+      // continue
+    }
+  }
+
+  // 4. Handle raw control characters / newlines inside string values
+  const escapedNewlines = cleaned.replace(/(?<=:\s*"[^"]*)\r?\n(?=[^"]*")/g, '\\n');
+  try {
+    return JSON.parse(escapedNewlines.replace(/,\s*([}\]])/g, '$1'));
+  } catch {
+    // continue
+  }
+
+  // 5. Balance missing closing quotes / braces / brackets from truncated outputs
+  let balanced = cleaned;
+  const quoteCount = (balanced.match(/(?<!\\)"/g) || []).length;
+  if (quoteCount % 2 !== 0) {
+    balanced += '"';
+  }
+  const openB = (balanced.match(/\{/g) || []).length;
+  const closeB = (balanced.match(/\}/g) || []).length;
+  for (let i = 0; i < openB - closeB; i++) {
+    balanced += '}';
+  }
+  const openBrackets = (balanced.match(/\[/g) || []).length;
+  const closeBrackets = (balanced.match(/\]/g) || []).length;
+  for (let i = 0; i < openBrackets - closeBrackets; i++) {
+    balanced += ']';
+  }
+  try {
+    return JSON.parse(balanced.replace(/,\s*([}\]])/g, '$1'));
+  } catch {
+    // continue
+  }
+
+  // 6. Direct action/actions recovery regex
+  const directActionMatch = cleaned.match(/"action"\s*:\s*(\{\s*"action"\s*:\s*"[^"]+"[\s\S]*?\})/i);
+  if (directActionMatch) {
+    try {
+      const actObj = JSON.parse(directActionMatch[1].replace(/,\s*([}\]])/g, '$1'));
+      return { thought: 'Executing recovered action', action: actObj };
+    } catch {
+      // continue
+    }
+  }
+
+  const directActionsMatch = cleaned.match(/"actions"\s*:\s*(\[\s*\{[\s\S]*?\}\s*\])/i);
+  if (directActionsMatch) {
+    try {
+      const actsArr = JSON.parse(directActionsMatch[1].replace(/,\s*([}\]])/g, '$1'));
+      return { thought: 'Executing recovered actions', actions: actsArr };
+    } catch {
+      // continue
+    }
+  }
+
+  return null;
+}
+
 function parseModelResponseUnsafe(rawContent: string): AgentDecision {
   const trimmed = rawContent.trim();
   let thought = '';
@@ -44,20 +150,17 @@ function parseModelResponseUnsafe(rawContent: string): AgentDecision {
     if (firstBrace !== -1 && lastBrace > firstBrace) {
       actionJson = trimmed.substring(firstBrace, lastBrace + 1);
       thought = trimmed.substring(0, firstBrace).trim();
+    } else if (firstBrace !== -1) {
+      actionJson = trimmed.substring(firstBrace);
+      thought = trimmed.substring(0, firstBrace).trim();
     } else {
       throw new Error(`Could not locate valid JSON action in model response: "${rawContent.substring(0, 100)}"`);
     }
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(actionJson);
-  } catch {
-    throw new Error(`Failed to parse extracted JSON block: "${actionJson.substring(0, 100)}"`);
-  }
-
+  const parsed = tryParseJson(actionJson);
   if (!parsed || typeof parsed !== 'object') {
-    throw new Error('Extracted action block is not a valid JSON object');
+    throw new Error(`Failed to parse extracted JSON block: "${actionJson.substring(0, 100)}"`);
   }
 
   const obj = parsed as Record<string, unknown>;

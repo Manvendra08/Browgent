@@ -261,6 +261,32 @@ describe('DOM Extractor', () => {
     expect(anotherAcct).toBeDefined();
     expect(anotherAcct?.role).toBe('button');
   });
+
+  it('isolates elements inside framework modal dialogs (.modal-dialog, .modal.show)', () => {
+    document.body.innerHTML = `
+      <div id="main-page">
+        <button id="start-btn">Start</button>
+        <button id="next-btn">Next</button>
+      </div>
+      <div class="modal show">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <h3 class="modal-title">Select Language</h3>
+            <select id="lang-select">
+              <option value="en">English (International)</option>
+            </select>
+            <button id="continue-btn">Continue</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const state = captureDOMState(document);
+    expect(state.formattedPrompt).toContain('[ACTIVE MODAL DIALOG DETECTED: "Select Language"]');
+    expect(state.elements.some((e) => e.text?.includes('Continue'))).toBe(true);
+    expect(state.elements.some((e) => e.text?.includes('Start'))).toBe(false);
+    expect(state.elements.some((e) => e.text?.includes('Next'))).toBe(false);
+  });
 });
 describe('captureDOMState page text excerpt', () => {
   beforeEach(() => {
@@ -291,5 +317,62 @@ describe('captureDOMState page text excerpt', () => {
     expect(state.textExcerpt.length).toBeLessThanOrEqual(MAX_TEXT_EXCERPT_CHARS + 1);
     expect(state.textExcerpt.endsWith('\u2026')).toBe(true);
     expect(state.textExcerpt).not.toMatch(/\s{2,}/);
+  });
+});
+
+describe('Shadow DOM extraction & resolution', () => {
+  it('extracts interactive elements inside open shadow roots and marks isShadow', () => {
+    document.body.innerHTML = `
+      <div>
+        <button id="light-btn">Light Button</button>
+        <div id="host-element"></div>
+      </div>
+    `;
+
+    const host = document.getElementById('host-element')!;
+    if (typeof host.attachShadow === 'function') {
+      const shadow = host.attachShadow({ mode: 'open' });
+      shadow.innerHTML = `
+        <button id="shadow-btn" aria-expanded="false" aria-controls="sub-drawer" aria-haspopup="true">Shadow Menu</button>
+        <input type="text" id="shadow-input" placeholder="Search inside shadow..." />
+      `;
+
+      const elements = extractInteractiveElements(document);
+      const shadowBtn = elements.find((e) => e.text.includes('Shadow Menu'));
+      const shadowInp = elements.find((e) => e.placeholder?.includes('Search inside shadow'));
+
+      expect(shadowBtn).toBeDefined();
+      expect(shadowBtn?.isShadow).toBe(true);
+      expect(shadowBtn?.ariaExpanded).toBe('false');
+      expect(shadowBtn?.ariaControls).toBe('sub-drawer');
+      expect(shadowBtn?.ariaHasPopup).toBe('true');
+
+      expect(shadowInp).toBeDefined();
+      expect(shadowInp?.isShadow).toBe(true);
+
+      const prompt = formatElementsForPrompt(elements);
+      expect(prompt).toContain('aria-expanded="false"');
+      expect(prompt).toContain('aria-controls="sub-drawer"');
+      expect(prompt).toContain('aria-haspopup="true"');
+      expect(prompt).toContain('[shadow]');
+    }
+  });
+
+  it('respects hidden styles on shadow host containers', () => {
+    document.body.innerHTML = `
+      <div>
+        <div id="hidden-host" style="display: none;"></div>
+      </div>
+    `;
+
+    const host = document.getElementById('hidden-host')!;
+    if (typeof host.attachShadow === 'function') {
+      const shadow = host.attachShadow({ mode: 'open' });
+      shadow.innerHTML = `<button id="nested-shadow-btn">Hidden Inside Shadow</button>`;
+
+      const elements = extractInteractiveElements(document);
+      const nestedBtn = elements.find((e) => e.text.includes('Hidden Inside Shadow'));
+      expect(nestedBtn).toBeUndefined();
+    }
   });
 });

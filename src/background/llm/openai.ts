@@ -23,10 +23,17 @@ export function isImageUnsupportedError(errorBody: string): boolean {
     /image input/i.test(errorBody) ||
     /Filter by Image Support/i.test(errorBody) ||
     /does not support image/i.test(errorBody) ||
+    /images are not supported/i.test(errorBody) ||
     /image_url is only supported/i.test(errorBody) ||
+    /unsupported parameter:?\s*['"]?image/i.test(errorBody) ||
+    /unsupported.*image/i.test(errorBody) ||
     /modality:?\s*image/i.test(errorBody) ||
     /does not support vision/i.test(errorBody) ||
-    /unsupported.*image/i.test(errorBody) ||
+    /vision.*not supported/i.test(errorBody) ||
+    /multimodal.*not supported/i.test(errorBody) ||
+    /model.*only.*supports? text/i.test(errorBody) ||
+    /no endpoint.*support.*image/i.test(errorBody) ||
+    /invalid_request_error.*image/i.test(errorBody) ||
     /unsupported parameter.*image_url/i.test(errorBody)
   );
 }

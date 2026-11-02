@@ -12,6 +12,7 @@ interface ContentResponse {
   success: boolean;
   error?: string;
   rect?: ContentRect;
+  nativeEnter?: boolean;
 }
 
 type ContentListener = (
@@ -197,8 +198,10 @@ describe('Content script message protocol', () => {
       type: 'TYPE_ELEMENT',
       elementId: editable?.id,
       text: 'Updated via agent',
+      pressEnter: true,
     });
     expect(editResponse.success).toBe(true);
+    expect(editResponse.nativeEnter).toBe(true);
     expect((editable?.domNode as HTMLElement).textContent).toBe('Updated via agent');
 
     const formInp = elements.find((el) => el.id && el.domNode?.id === 'inp-form');

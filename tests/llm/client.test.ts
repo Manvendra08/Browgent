@@ -79,6 +79,41 @@ describe('LLM Response Parser', () => {
     }
   });
 
+  it('rescues JSON with unescaped double quotes inside thought string', () => {
+    const output = `\`\`\`json
+{
+  "thought": "The Start button (element 24) was successfully clicked in step 3. The page likely now shows the "Select Language" modal dialog. I will click the Continue button.",
+  "action": {
+    "action": "click",
+    "elementId": 5
+  }
+}
+\`\`\``;
+    const decision = parseModelResponse(output);
+    expect(decision.action).toEqual({ action: 'click', elementId: 5 });
+    expect(decision.thought).toContain('Select Language');
+  });
+
+  it('rescues JSON with trailing commas and inline comments', () => {
+    const output = `\`\`\`json
+{
+  "thought": "Navigating to assessment", // inline note
+  "action": {
+    "action": "click",
+    "elementId": 12,
+  },
+}
+\`\`\``;
+    const decision = parseModelResponse(output);
+    expect(decision.action).toEqual({ action: 'click', elementId: 12 });
+  });
+
+  it('rescues truncated JSON with missing closing braces', () => {
+    const output = '{"thought": "Proceeding", "action": {"action": "click", "elementId": 7';
+    const decision = parseModelResponse(output);
+    expect(decision.action).toEqual({ action: 'click', elementId: 7 });
+  });
+
   it('resolves OmniRoute aliases even when prefixed with leading slash', () => {
     expect(resolveOmniRouteModel('/anti')).toBe('Claude/Antigravity');
     expect(resolveOmniRouteModel('/free')).toBe('Claude/Free');

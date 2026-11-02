@@ -202,7 +202,7 @@ export function parseAgentAction(raw: string): AgentAction {
 function sendDomAction(
   tabId: number,
   payload: Record<string, unknown>,
-): Promise<{ success: boolean; error?: string; rect?: ElementRectPayload }> {
+): Promise<{ success: boolean; error?: string; rect?: ElementRectPayload; nativeEnter?: boolean }> {
   return new Promise((resolve) => {
     if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.sendMessage) {
       resolve({ success: false, error: 'chrome.tabs unavailable' });
@@ -220,6 +220,7 @@ function sendDomAction(
       resolve({
         success: true,
         rect: response.rect,
+        nativeEnter: response.nativeEnter,
       });
     });
   });
@@ -394,6 +395,13 @@ export async function executeAgentAction(
         }
 
         if (domResult.success) {
+          if (domResult.nativeEnter) {
+            try {
+              await dispatchKeyPress(tabId, 'Enter');
+            } catch (cdpErr) {
+              console.warn('[Browgent Actions] CDP native Enter dispatch failed:', cdpErr);
+            }
+          }
           return { success: true };
         }
 
