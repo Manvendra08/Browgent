@@ -198,6 +198,56 @@ describe('AgentController question-goal verification', () => {
     expect(auditPrompt).toContain('Unique answer marker ABC123');
     expect(auditPrompt).toContain('PAGE TEXT (excerpt)');
     expect(auditPrompt).toContain('Identify legal and regulatory risks');
+    expect(auditPrompt).toContain('Dynamic & Live Streaming Feeds');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('reuses the step snapshot for finish when no preceding actions were executed in the turn', async () => {
+    const sendMessage = vi.fn((_id, _msg, optionsOrCb, maybeCb) => {
+      const cb = typeof optionsOrCb === 'function' ? optionsOrCb : maybeCb;
+      cb?.({
+        success: true,
+        data: {
+          url: 'https://web.sensibull.com/positions',
+          title: 'Sensibull F&O Positions',
+          elements: [],
+          formattedPrompt: 'No elements detected.',
+          textExcerpt: 'BANKNIFTY 55422.50 Total P&L -6.48L',
+          viewport: { width: 1280, height: 800, scrollX: 0, scrollY: 0 },
+        },
+      });
+    });
+
+    vi.stubGlobal('chrome', {
+      runtime: { lastError: undefined },
+      tabs: {
+        get: vi.fn().mockResolvedValue({ id: 1, url: 'https://web.sensibull.com/positions' }),
+        sendMessage,
+      },
+    });
+
+    mockedQueryLLM.mockResolvedValue({
+      thought: 'Summarizing live positions',
+      action: { action: 'finish', summary: 'Total P&L is -6.48L across BANKNIFTY positions' },
+    });
+    mockedQueryLLMRaw.mockResolvedValue(
+      '```json\n{"goalKind": "question", "confirmed": true, "evidence": "Positions match summary"}\n```'
+    );
+
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 1,
+    });
+
+    const result = await controller.run(1, 'summarize sensibull positions in 5 bullets', () => {});
+
+    expect(result.success).toBe(true);
+    // sendMessage called once for step start DOM capture, and NOT a second time for audit capture
+    const getDomCalls = sendMessage.mock.calls.filter(
+      (call) => (call[1] as { type: string }).type === 'GET_DOM_STATE'
+    );
+    expect(getDomCalls).toHaveLength(1);
 
     vi.unstubAllGlobals();
   });

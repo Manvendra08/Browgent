@@ -326,4 +326,74 @@ describe('Sidepanel App Conversational Flow', () => {
       expect(screen.queryByText(/super_secret_code/)).toBeNull();
     });
   });
+
+  it('initializes with a completely fresh session in a new tab without carrying over existing threads', async () => {
+    fakeStorage['browgent_threads'] = [
+      {
+        id: 'prior-thread-999',
+        title: 'Prior Thread From Another Tab',
+        createdAt: 1000,
+        updatedAt: 1000,
+        turns: [
+          {
+            id: 'turn-999',
+            mode: 'agent',
+            prompt: 'Prior secret prompt from Tab A',
+            steps: [],
+            result: 'Prior result from Tab A',
+            status: 'completed',
+            createdAt: 1000,
+          },
+        ],
+      },
+    ];
+
+    vi.mocked(chrome.tabs.query).mockResolvedValue([
+      { id: 202, title: 'New Tab B', url: 'https://other-tab.com' } as chrome.tabs.Tab,
+    ]);
+
+    render(<App />);
+
+    // Verify completely fresh session: prompt suggestions visible, prior thread not visible
+    await waitFor(() => {
+      expect(screen.getByText('Ready for instructions')).toBeDefined();
+    });
+    expect(screen.queryByText('Prior secret prompt from Tab A')).toBeNull();
+    expect(screen.queryByText('Prior result from Tab A')).toBeNull();
+
+    // Opening history modal still allows viewing previous threads
+    const historyBtn = screen.getByTitle('Chat history');
+    fireEvent.click(historyBtn);
+    expect(screen.getByText('Prior Thread From Another Tab')).toBeDefined();
+  });
+
+  it('restores previous thread for the same tab when tab thread exists in session storage', async () => {
+    fakeStorage['browgent_threads'] = [
+      {
+        id: 'thread-for-tab-101',
+        title: 'Tab 101 Task',
+        createdAt: 1000,
+        updatedAt: 1000,
+        turns: [
+          {
+            id: 'turn-1',
+            mode: 'agent',
+            prompt: 'Tab 101 active task',
+            steps: [],
+            result: 'Result for 101',
+            status: 'completed',
+            createdAt: 1000,
+          },
+        ],
+      },
+    ];
+    fakeSessionStorage['browgent_tab_thread_101'] = 'thread-for-tab-101';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Tab 101 active task')).toBeDefined();
+      expect(screen.getByText('Result for 101')).toBeDefined();
+    });
+  });
 });

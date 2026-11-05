@@ -11,6 +11,10 @@ import {
   Globe,
   Bot,
   User,
+  FileText,
+  Table,
+  CheckSquare,
+  Search,
 } from 'lucide-react';
 import { Turn } from '../threads';
 import { StepList } from './StepList';
@@ -22,6 +26,23 @@ interface ChatThreadProps {
   suggestions?: string[];
   onSuggestionClick?: (prompt: string) => void;
 }
+
+const getStarterMeta = (prompt: string): { label: string; icon: React.ReactNode; color: string } => {
+  const p = prompt.toLowerCase();
+  if (p.includes('summarize')) {
+    return { label: 'Summarize', icon: <FileText className="w-3 h-3 text-indigo-400 shrink-0" />, color: 'text-indigo-400' };
+  }
+  if (p.includes('extract') || p.includes('table') || p.includes('price')) {
+    return { label: 'Extract', icon: <Table className="w-3 h-3 text-emerald-400 shrink-0" />, color: 'text-emerald-400' };
+  }
+  if (p.includes('form') || p.includes('fill')) {
+    return { label: 'Automate', icon: <CheckSquare className="w-3 h-3 text-amber-400 shrink-0" />, color: 'text-amber-400' };
+  }
+  if (p.includes('check') || p.includes('broken') || p.includes('audit') || p.includes('layout')) {
+    return { label: 'Audit', icon: <Search className="w-3 h-3 text-sky-400 shrink-0" />, color: 'text-sky-400' };
+  }
+  return { label: 'Task', icon: <Sparkles className="w-3 h-3 text-violet-400 shrink-0" />, color: 'text-violet-400' };
+};
 
 export const ChatThread: React.FC<ChatThreadProps> = ({
   turns,
@@ -82,24 +103,37 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
     >
       {/* Empty State */}
       {turns.length === 0 && (
-        <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
-          <Sparkles className="w-8 h-8 text-indigo-400/40 mb-2" />
-          <p className="text-xs font-medium text-slate-400">Ready for instructions</p>
-          <p className="text-[11px] mt-1 max-w-[220px] text-slate-400">
+        <div className="h-full flex flex-col items-center justify-center text-center p-4 text-slate-500">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500/10 to-violet-500/20 border border-indigo-500/20 flex items-center justify-center mb-2.5 shadow-xs">
+            <Sparkles className="w-5 h-5 text-indigo-400" />
+          </div>
+          <p className="text-xs font-semibold text-slate-300 tracking-tight">Ready for instructions</p>
+          <p className="text-[11px] mt-0.5 max-w-[240px] text-slate-400">
             Enter a prompt below or pick a starter:
           </p>
           {suggestions && suggestions.length > 0 && (
-            <div className="mt-3 w-full max-w-[260px] flex flex-col gap-1.5">
-              {suggestions.map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  onClick={() => onSuggestionClick?.(prompt)}
-                  className="w-full text-left px-2.5 py-1.5 rounded-md text-[11px] text-slate-300 bg-slate-800/60 border border-slate-700/60 hover:border-indigo-500/60 hover:text-indigo-300 transition leading-snug cursor-pointer"
-                >
-                  {prompt}
-                </button>
-              ))}
+            <div className="mt-3.5 w-full max-w-[340px] grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+              {suggestions.map((prompt) => {
+                const cat = getStarterMeta(prompt);
+                return (
+                  <button
+                    key={prompt}
+                    type="button"
+                    onClick={() => onSuggestionClick?.(prompt)}
+                    className="group relative flex flex-col justify-between p-2.5 rounded-lg text-slate-300 bg-slate-900/80 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-800/70 hover:shadow-sm transition cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      {cat.icon}
+                      <span className={`text-[9px] font-bold uppercase tracking-wider ${cat.color}`}>
+                        {cat.label}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-300 group-hover:text-slate-100 transition line-clamp-2 leading-snug">
+                      {prompt}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

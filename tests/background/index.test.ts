@@ -23,14 +23,22 @@ vi.mock('../../src/background/agent', () => ({
 
 let connectListener: (port: FakePort) => void;
 let installedListener: () => void;
-let contextMenuClickListener: ((info: { menuItemId: string; selectionText?: string }, tab?: { windowId: number }) => void) | null = null;
+let actionClickListener: ((tab: { id: number }) => Promise<void>) | null = null;
+let tabRemovedListener: ((tabId: number) => void) | null = null;
+let tabActivatedListener: ((activeInfo: { tabId: number }) => void) | null = null;
+let tabCreatedListener: ((tab: { id: number }) => void) | null = null;
+let tabUpdatedListener: ((tabId: number, changeInfo: { status?: string; url?: string }) => void) | null = null;
+let contextMenuClickListener: ((info: { menuItemId: string; selectionText?: string }, tab?: { id?: number; windowId?: number }) => void) | null = null;
 let queryMock: ReturnType<typeof vi.fn>;
 let updateMock: ReturnType<typeof vi.fn>;
 let getMock: ReturnType<typeof vi.fn>;
 let setPanelBehavior: ReturnType<typeof vi.fn>;
+let setOptions: ReturnType<typeof vi.fn>;
 let sidePanelOpen: ReturnType<typeof vi.fn>;
 let contextMenusCreate: ReturnType<typeof vi.fn>;
+let sessionStorageGet: ReturnType<typeof vi.fn>;
 let sessionStorageSet: ReturnType<typeof vi.fn>;
+let sessionStorageRemove: ReturnType<typeof vi.fn>;
 
 function makePort(name = 'browgent-sidepanel'): FakePort {
   const port = {
@@ -77,9 +85,17 @@ beforeEach(async () => {
     status: 'complete',
   }));
   setPanelBehavior = vi.fn().mockResolvedValue(undefined);
+  setOptions = vi.fn().mockResolvedValue(undefined);
   sidePanelOpen = vi.fn().mockResolvedValue(undefined);
   contextMenusCreate = vi.fn();
+  sessionStorageGet = vi.fn().mockResolvedValue({});
   sessionStorageSet = vi.fn().mockResolvedValue(undefined);
+  sessionStorageRemove = vi.fn().mockResolvedValue(undefined);
+  actionClickListener = null;
+  tabRemovedListener = null;
+  tabActivatedListener = null;
+  tabCreatedListener = null;
+  tabUpdatedListener = null;
   contextMenuClickListener = null;
 
   (globalThis as unknown as { chrome: unknown }).chrome = {
@@ -87,23 +103,52 @@ beforeEach(async () => {
       onInstalled: { addListener: (cb: () => void) => { installedListener = cb; } },
       onConnect: { addListener: (cb: (port: FakePort) => void) => { connectListener = cb; } },
     },
+    action: {
+      onClicked: {
+        addListener: (cb: (tab: { id: number }) => Promise<void>) => {
+          actionClickListener = cb;
+        },
+      },
+    },
     tabs: {
       query: queryMock,
       update: updateMock,
       get: getMock,
+      onRemoved: {
+        addListener: (cb: (tabId: number) => void) => {
+          tabRemovedListener = cb;
+        },
+      },
+      onActivated: {
+        addListener: (cb: (activeInfo: { tabId: number }) => void) => {
+          tabActivatedListener = cb;
+        },
+      },
+      onCreated: {
+        addListener: (cb: (tab: { id: number }) => void) => {
+          tabCreatedListener = cb;
+        },
+      },
+      onUpdated: {
+        addListener: (cb: (tabId: number, changeInfo: { status?: string; url?: string }) => void) => {
+          tabUpdatedListener = cb;
+        },
+      },
     },
-    sidePanel: { setPanelBehavior, open: sidePanelOpen },
+    sidePanel: { setPanelBehavior, setOptions, open: sidePanelOpen },
     contextMenus: {
       create: contextMenusCreate,
       onClicked: {
-        addListener: (cb: (info: { menuItemId: string; selectionText?: string }, tab?: { windowId: number }) => void) => {
+        addListener: (cb: (info: { menuItemId: string; selectionText?: string }, tab?: { id?: number; windowId?: number }) => void) => {
           contextMenuClickListener = cb;
         },
       },
     },
     storage: {
       session: {
+        get: sessionStorageGet,
         set: sessionStorageSet,
+        remove: sessionStorageRemove,
       },
     },
   };
@@ -117,9 +162,9 @@ afterEach(() => {
 });
 
 describe('background service worker', () => {
-  it('opens the side panel on action click when installed', () => {
+  it('configures per-tab side panel behavior and creates context menu when installed', () => {
     installedListener();
-    expect(setPanelBehavior).toHaveBeenCalledWith({ openPanelOnActionClick: true });
+    expect(setPanelBehavior).toHaveBeenCalledWith({ openPanelOnActionClick: false });
     expect(contextMenusCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'browgent-ask-selection',
@@ -129,20 +174,170 @@ describe('background service worker', () => {
     );
   });
 
-  it('handles context menu click by opening side panel and writing pending prompt to session storage', async () => {
+  it('enables and opens side panel specifically for the clicked tab on action click and toggles closed on second click', async () => {
+    expect(actionClickListener).toBeDefined();
+    actionClickListener?.({ id: 99 });
+
+    expect(setOptions).toHaveBeenCalledWith({
+      tabId: 99,
+      path: 'src/sidepanel/index.html?tabId=99',
+      enabled: true,
+    });
+    expect(sidePanelOpen).toHaveBeenCalledWith({ tabId: 99 });
+
+    // Second click on the same tab toggles it closed
+    setOptions.mockClear();
+    actionClickListener?.({ id: 99 });
+    expect(setOptions).toHaveBeenCalledWith({
+      tabId: 99,
+      enabled: false,
+    });
+  });
+
+  it('disables side panel on newly created tabs', () => {
+    expect(tabCreatedListener).toBeDefined();
+    tabCreatedListener?.({ id: 101 });
+    expect(setOptions).toHaveBeenCalledWith({
+      tabId: 101,
+      enabled: false,
+    });
+  });
+
+  it('isolates side panel on tab switch: enables active panel tab and disables inactive tab', () => {
+    expect(tabActivatedListener).toBeDefined();
+
+    // Tab 55 has not had its panel opened -> disable on switch
+    tabActivatedListener?.({ tabId: 55 });
+    expect(setOptions).toHaveBeenCalledWith({
+      tabId: 55,
+      enabled: false,
+    });
+
+    // Open side panel on tab 77
+    actionClickListener?.({ id: 77 });
+    setOptions.mockClear();
+
+    // Switching to tab 77 re-enables it
+    tabActivatedListener?.({ tabId: 77 });
+    expect(setOptions).toHaveBeenCalledWith({
+      tabId: 77,
+      path: 'src/sidepanel/index.html?tabId=77',
+      enabled: true,
+    });
+  });
+
+  it('maintains per-tab side panel options on tab update (navigation/reload)', () => {
+    expect(tabUpdatedListener).toBeDefined();
+
+    // Tab 105 has not been opened -> enforces disabled on navigation
+    tabUpdatedListener?.(105, { status: 'loading' });
+    expect(setOptions).toHaveBeenCalledWith({
+      tabId: 105,
+      enabled: false,
+    });
+
+    // Tab 77 was opened -> maintains enabled on navigation
+    actionClickListener?.({ id: 77 });
+    setOptions.mockClear();
+
+    tabUpdatedListener?.(77, { status: 'loading' });
+    expect(setOptions).toHaveBeenCalledWith({
+      tabId: 77,
+      path: 'src/sidepanel/index.html?tabId=77',
+      enabled: true,
+    });
+  });
+
+  it('keeps tab in activePanelTabs on port disconnect if tab is not active (tab switch), but removes it if active tab closes panel', async () => {
+    // Open panel on tab 42
+    actionClickListener?.({ id: 42 });
+    expect(setOptions).toHaveBeenCalledWith(expect.objectContaining({ tabId: 42, enabled: true }));
+
+    // Connect port for tab 42
+    const port42 = makePort('browgent-sidepanel-42');
+    connectListener(port42);
+
+    // Simulate tab switch: user opens tab 999 which is now the active tab
+    queryMock.mockResolvedValue([{ id: 999, active: true }]);
+
+    // Port 42 disconnects because tab 42 was hidden
+    const disconnectCb = port42.onDisconnect.addListener.mock.calls[0][0] as () => void;
+    disconnectCb();
+    await vi.waitFor(() => {});
+
+    // Now switch back to tab 42
+    setOptions.mockClear();
+    tabActivatedListener?.({ tabId: 42 });
+    // Panel should still be restored because tab 42 remained open!
+    expect(setOptions).toHaveBeenCalledWith({
+      tabId: 42,
+      path: 'src/sidepanel/index.html?tabId=42',
+      enabled: true,
+    });
+
+    // Now, if active tab is 42 and port disconnects (e.g. user clicked panel close button)
+    queryMock.mockResolvedValue([{ id: 42, active: true }]);
+    disconnectCb();
+    await vi.waitFor(() => {});
+
+    // Now switching to 42 would result in disabled because it was explicitly closed
+    setOptions.mockClear();
+    tabActivatedListener?.({ tabId: 42 });
+    expect(setOptions).toHaveBeenCalledWith({
+      tabId: 42,
+      enabled: false,
+    });
+  });
+
+  it('handles context menu click by opening tab-specific side panel and writing tab-scoped pending prompt', async () => {
     expect(contextMenuClickListener).toBeDefined();
     await contextMenuClickListener?.(
       { menuItemId: 'browgent-ask-selection', selectionText: 'Selected paragraph text' },
-      { windowId: 42 },
+      { id: 42, windowId: 100 },
     );
 
-    expect(sidePanelOpen).toHaveBeenCalledWith({ windowId: 42 });
-    expect(sessionStorageSet).toHaveBeenCalledWith({
-      browgent_pending_prompt: {
-        text: 'Selected paragraph text',
-        mode: 'ask',
-      },
+    expect(setOptions).toHaveBeenCalledWith({
+      tabId: 42,
+      path: 'src/sidepanel/index.html?tabId=42',
+      enabled: true,
     });
+    expect(sidePanelOpen).toHaveBeenCalledWith({ tabId: 42 });
+    expect(sessionStorageSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        browgent_pending_prompt_42: {
+          text: 'Selected paragraph text',
+          mode: 'ask',
+        },
+        browgent_pending_prompt: {
+          text: 'Selected paragraph text',
+          mode: 'ask',
+        },
+      }),
+    );
+  });
+
+  it('cleans up tab resources, storage, and active agents when a tab is closed', async () => {
+    runMock.mockReturnValue(new Promise(() => {}));
+    const port = makePort('browgent-sidepanel-42');
+    connectListener(port);
+
+    const handler = port.onMessage.addListener.mock.calls[0][0] as (m: unknown) => Promise<void>;
+    void handler({
+      type: 'START_AGENT',
+      payload: { tabId: 42, goal: 'long running', llmConfig: { provider: 'omniroute' } },
+    });
+
+    await vi.waitFor(() => expect(runMock).toHaveBeenCalled());
+
+    expect(tabRemovedListener).toBeDefined();
+    tabRemovedListener?.(42);
+
+    expect(stopMock).toHaveBeenCalledTimes(1);
+    expect(setOptions).toHaveBeenCalledWith({ tabId: 42, enabled: false });
+    expect(sessionStorageRemove).toHaveBeenCalledWith([
+      'browgent_tab_thread_42',
+      'browgent_pending_prompt_42',
+    ]);
   });
 
   it('ignores ports that are not the Browgent side panel', () => {
@@ -342,5 +537,45 @@ describe('background service worker', () => {
     // A second tick must be a no-op now that the port was cleared.
     vi.advanceTimersByTime(20000);
     expect(port.postMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('isolates agents and ports across tabs so stopping one does not stop another', async () => {
+    let resolveRun1: (val: unknown) => void = () => {};
+    let resolveRun2: (val: unknown) => void = () => {};
+    runMock
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRun1 = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRun2 = resolve; }));
+
+    getMock.mockImplementation(async (id: number) => ({
+      id,
+      url: `https://example.com/tab${id}`,
+      title: `Tab ${id}`,
+      status: 'complete',
+    }));
+
+    const port1 = makePort('browgent-sidepanel-10');
+    const port2 = makePort('browgent-sidepanel-20');
+    connectListener(port1);
+    connectListener(port2);
+
+    const handler1 = port1.onMessage.addListener.mock.calls[0][0] as (m: unknown) => Promise<void>;
+    const handler2 = port2.onMessage.addListener.mock.calls[0][0] as (m: unknown) => Promise<void>;
+
+    void handler1({ type: 'START_AGENT', payload: { tabId: 10, goal: 'Goal 10', llmConfig: { provider: 'omniroute' } } });
+    void handler2({ type: 'START_AGENT', payload: { tabId: 20, goal: 'Goal 20', llmConfig: { provider: 'omniroute' } } });
+
+    await vi.waitFor(() => expect(runMock).toHaveBeenCalledTimes(2));
+
+    // Stop only tab 10
+    await handler1({ type: 'STOP_AGENT', payload: { tabId: 10 } });
+    expect(stopMock).toHaveBeenCalledTimes(1);
+    expect(lastPortStatus(port1, 'STATUS_UPDATE').at(-1)).toMatchObject({ status: 'stopped' });
+
+    // Port 2 received no stopped update
+    const port2Statuses = lastPortStatus(port2, 'STATUS_UPDATE');
+    expect(port2Statuses.some((s: unknown) => (s as { status: string }).status === 'stopped')).toBe(false);
+
+    resolveRun1({ success: false });
+    resolveRun2({ success: true, summary: 'Tab 2 finished' });
   });
 });

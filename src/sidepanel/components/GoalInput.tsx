@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Square, Sparkles, X, MessageSquare, Bot } from 'lucide-react';
+import { Play, Square, Sparkles, X, MessageSquare, Bot, Cpu } from 'lucide-react';
 import { TurnMode } from '../threads';
 
 interface GoalInputProps {
@@ -10,6 +10,12 @@ interface GoalInputProps {
   isRunning: boolean;
   onRun: () => void;
   onStop: () => void;
+  modelName?: string;
+  onOpenSettings?: () => void;
+  activeSkillsCount?: number;
+  onToggleSkillsBar?: () => void;
+  tabComponent?: React.ReactNode;
+  filesComponent?: React.ReactNode;
 }
 
 export const GoalInput: React.FC<GoalInputProps> = ({
@@ -20,6 +26,12 @@ export const GoalInput: React.FC<GoalInputProps> = ({
   isRunning,
   onRun,
   onStop,
+  modelName,
+  onOpenSettings,
+  activeSkillsCount,
+  onToggleSkillsBar,
+  tabComponent,
+  filesComponent,
 }) => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter') {
@@ -39,91 +51,127 @@ export const GoalInput: React.FC<GoalInputProps> = ({
       : 'Enter your automation goal... (e.g. Find top 3 products on this page and summarize prices)';
 
   return (
-    <div className="p-3 bg-slate-900 border-t border-slate-800 flex flex-col gap-2">
-      {/* Mode Segmented Control */}
-      <div className="flex items-center justify-between">
-        <div className="inline-flex items-center bg-slate-800/90 p-0.5 rounded-lg border border-slate-700/60 text-xs">
-          <button
-            type="button"
-            onClick={() => setMode('ask')}
-            aria-pressed={mode === 'ask'}
-            className={`flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer ${
-              mode === 'ask'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <MessageSquare className="w-3 h-3" />
-            <span>Ask</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('agent')}
-            aria-pressed={mode === 'agent'}
-            className={`flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer ${
-              mode === 'agent'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Bot className="w-3 h-3" />
-            <span>Agent</span>
-          </button>
+    <div className="p-2.5 bg-slate-950/90 border-t border-slate-800/80 flex flex-col gap-1.5">
+      {/* Optional Embedded Tab Context Bar */}
+      {tabComponent}
+
+      {/* Optional Embedded File Attachments */}
+      {filesComponent}
+
+      {/* Main Unified Composer Card */}
+      <div className="bg-slate-900/90 border border-slate-800/90 rounded-xl p-2.5 flex flex-col gap-2 shadow-lg focus-within:border-indigo-500/60 focus-within:ring-1 focus-within:ring-indigo-500/20 transition">
+        {/* Top Segmented Mode Bar */}
+        <div className="flex items-center justify-between">
+          <div className="inline-flex items-center bg-slate-950/80 p-0.5 rounded-lg border border-slate-800/80 text-xs">
+            <button
+              type="button"
+              onClick={() => setMode('ask')}
+              aria-pressed={mode === 'ask'}
+              className={`flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer ${
+                mode === 'ask'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <MessageSquare className="w-3 h-3" />
+              <span>Ask</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('agent')}
+              aria-pressed={mode === 'agent'}
+              className={`flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer ${
+                mode === 'agent'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Bot className="w-3 h-3" />
+              <span>Agent</span>
+            </button>
+          </div>
+
+          <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
+            <kbd className="bg-slate-800 px-1 py-0.5 rounded text-slate-400 text-[9px] border border-slate-700/60">Enter</kbd> to send
+          </span>
         </div>
 
-        <span className="text-[10px] text-slate-500">
-          <kbd className="bg-slate-800 px-1 py-0.5 rounded text-slate-400">Enter</kbd> to send
-        </span>
-      </div>
-
-      <div className="relative">
-        <textarea
-          className="w-full bg-slate-800/90 text-slate-100 placeholder-slate-500 text-xs rounded-lg p-2.5 pr-14 border border-slate-700/80 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 resize-none h-20 transition"
-          placeholder={placeholder}
-          value={goal}
-          onChange={(e) => setGoal(e.target.value)}
-          onKeyDown={handleKeyDown}
-        />
-        {goal && !isRunning && (
-          <button
-            type="button"
-            onClick={() => setGoal('')}
-            aria-label="Clear goal input"
-            title="Clear input"
-            className="absolute right-7 top-2 text-slate-500 hover:text-slate-300 p-1 rounded transition cursor-pointer"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        )}
-        <Sparkles className="w-3.5 h-3.5 text-indigo-400 absolute right-2.5 top-2.5 pointer-events-none opacity-60" />
-      </div>
-
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] text-slate-500">Shift+Enter for newline</span>
-
-        <div className="flex items-center gap-1.5">
-          {isRunning ? (
+        {/* Textarea Area */}
+        <div className="relative">
+          <textarea
+            className="w-full bg-transparent text-slate-100 placeholder-slate-500 text-xs p-1 pr-12 focus:outline-none resize-none h-18 transition font-sans"
+            placeholder={placeholder}
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+          {goal && !isRunning && (
             <button
               type="button"
-              onClick={onStop}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-md text-xs font-medium transition shadow-sm animate-pulse cursor-pointer"
-              title="Stop Agent"
+              onClick={() => setGoal('')}
+              aria-label="Clear goal input"
+              title="Clear input"
+              className="absolute right-6 top-1 text-slate-500 hover:text-slate-300 p-1 rounded transition cursor-pointer"
             >
-              <Square className="w-3.5 h-3.5 fill-current" />
-              Stop
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onRun}
-              disabled={!goal.trim()}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 text-white rounded-md text-xs font-medium transition shadow-sm cursor-pointer"
-              title={mode === 'ask' ? 'Ask Browgent' : 'Run Agent'}
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              {mode === 'ask' ? 'Ask' : 'Run Agent'}
+              <X className="w-3.5 h-3.5" />
             </button>
           )}
+          <Sparkles className="w-3.5 h-3.5 text-indigo-400/50 absolute right-1 top-1 pointer-events-none" />
+        </div>
+
+        {/* Bottom Shelf Toolbar */}
+        <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/60 gap-1.5">
+          <div className="flex items-center gap-1.5 min-w-0">
+            {modelName && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                title={`Configured Model: ${modelName} (Click to open settings)`}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-[10px] text-slate-300 font-mono transition cursor-pointer truncate max-w-[140px]"
+              >
+                <Cpu className="w-2.5 h-2.5 text-indigo-400 shrink-0" />
+                <span className="truncate">{modelName}</span>
+              </button>
+            )}
+
+            {activeSkillsCount !== undefined && activeSkillsCount > 0 && (
+              <button
+                type="button"
+                onClick={onToggleSkillsBar}
+                title="Active skills"
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-[10px] text-amber-300 font-medium transition cursor-pointer shrink-0"
+              >
+                <span>⚡ {activeSkillsCount}</span>
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[9px] text-slate-500 font-mono hidden sm:inline">Shift+Enter for newline</span>
+
+            {isRunning ? (
+              <button
+                type="button"
+                onClick={onStop}
+                className="flex items-center gap-1.5 px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-md text-xs font-medium transition shadow-xs animate-pulse cursor-pointer"
+                title="Stop Agent"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+                Stop
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onRun}
+                disabled={!goal.trim()}
+                className="flex items-center gap-1.5 px-3.5 py-1 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-md text-xs font-medium transition shadow-sm cursor-pointer"
+                title={mode === 'ask' ? 'Ask Browgent' : 'Run Agent'}
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                {mode === 'ask' ? 'Ask' : 'Run Agent'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

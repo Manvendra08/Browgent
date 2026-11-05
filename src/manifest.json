@@ -28,9 +28,6 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "side_panel": {
-    "default_path": "src/sidepanel/index.html"
-  },
   "action": {
     "default_title": "Open Browgent Sidebar",
     "default_icon": {

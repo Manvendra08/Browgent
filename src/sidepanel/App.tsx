@@ -45,7 +45,19 @@ const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
 };
 
+const getInitialTabId = (): number | null => {
+  if (typeof window !== 'undefined' && window.location && window.location.search) {
+    const param = new URLSearchParams(window.location.search).get('tabId');
+    if (param) {
+      const parsed = parseInt(param, 10);
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+  }
+  return null;
+};
+
 export const App: React.FC = () => {
+  const [boundTabId, setBoundTabId] = useState<number | null>(getInitialTabId);
   const [goal, setGoal] = useState<string>('');
   const [mode, setMode] = useState<TurnMode>('agent');
   const [status, setStatus] = useState<'idle' | 'running' | 'completed' | 'failed' | 'stopped'>(
@@ -113,6 +125,33 @@ export const App: React.FC = () => {
       localStorage.setItem('browgent_theme', next);
     }
   };
+
+  // Ensure boundTabId is resolved for this panel instance
+  useEffect(() => {
+    if (boundTabId !== null) return;
+    if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
+      chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+        if (tabs && tabs[0]?.id) {
+          setBoundTabId(tabs[0].id);
+        }
+      }).catch(() => {});
+    }
+  }, [boundTabId]);
+
+  const updateTabActiveThread = React.useCallback(
+    (threadId: string | null, explicitTabId?: number | null) => {
+      setActiveThreadId(threadId);
+      const targetTab = explicitTabId ?? boundTabId;
+      if (targetTab !== null && typeof chrome !== 'undefined' && chrome.storage && chrome.storage.session) {
+        if (threadId) {
+          chrome.storage.session.set({ [`browgent_tab_thread_${targetTab}`]: threadId }).catch(() => {});
+        } else {
+          chrome.storage.session.remove([`browgent_tab_thread_${targetTab}`]).catch(() => {});
+        }
+      }
+    },
+    [boundTabId],
+  );
 
   // Track the currently active tab (live) for the tab bar above the prompt box
   const refreshActiveTab = React.useCallback(async () => {
@@ -184,7 +223,8 @@ export const App: React.FC = () => {
     }
 
     try {
-      const port = chrome.runtime.connect({ name: 'browgent-sidepanel' });
+      const portName = boundTabId !== null ? `browgent-sidepanel-${boundTabId}` : 'browgent-sidepanel';
+      const port = chrome.runtime.connect({ name: portName });
       portRef.current = port;
 
       port.onMessage.addListener((msg) => {
@@ -297,7 +337,7 @@ export const App: React.FC = () => {
       console.warn('[Sidepanel] Failed to connect port:', err);
       return null;
     }
-  }, []);
+  }, [boundTabId]);
 
   useEffect(() => {
     const port = getOrCreatePort();
@@ -314,11 +354,19 @@ export const App: React.FC = () => {
       return;
     }
     try {
-      const res = await chrome.storage.session.get(['browgent_pending_prompt']);
-      const pending = res?.browgent_pending_prompt as { text: string; mode?: TurnMode } | undefined;
+      const tabKey = boundTabId !== null ? `browgent_pending_prompt_${boundTabId}` : null;
+      const keysToQuery = tabKey ? [tabKey, 'browgent_pending_prompt'] : ['browgent_pending_prompt'];
+      const res = await chrome.storage.session.get(keysToQuery);
+      const pending = (tabKey && res?.[tabKey] ? res[tabKey] : res?.browgent_pending_prompt) as
+        | { text: string; mode?: TurnMode }
+        | undefined;
       if (pending && pending.text) {
-        await chrome.storage.session.remove(['browgent_pending_prompt']);
-        setActiveThreadId(null);
+        if (tabKey) {
+          await chrome.storage.session.remove([tabKey, 'browgent_pending_prompt']);
+        } else {
+          await chrome.storage.session.remove(['browgent_pending_prompt']);
+        }
+        updateTabActiveThread(null);
         activeTurnIdRef.current = null;
         setStatus('idle');
         setMode(pending.mode || 'ask');
@@ -327,7 +375,7 @@ export const App: React.FC = () => {
     } catch {
       // Session storage not available or error
     }
-  }, []);
+  }, [boundTabId, updateTabActiveThread]);
 
   useEffect(() => {
     checkPendingPrompt();
@@ -337,7 +385,11 @@ export const App: React.FC = () => {
         changes: { [key: string]: chrome.storage.StorageChange },
         areaName: string,
       ) => {
-        if (areaName === 'session' && changes['browgent_pending_prompt']?.newValue) {
+        const tabKey = boundTabId !== null ? `browgent_pending_prompt_${boundTabId}` : null;
+        if (
+          areaName === 'session' &&
+          (changes['browgent_pending_prompt']?.newValue || (tabKey && changes[tabKey]?.newValue))
+        ) {
           checkPendingPrompt();
         }
       };
@@ -346,7 +398,23 @@ export const App: React.FC = () => {
         chrome.storage.onChanged.removeListener(listener);
       };
     }
-  }, [checkPendingPrompt]);
+  }, [checkPendingPrompt, boundTabId]);
+
+  // Restore active thread for this tab once boundTabId is resolved
+  useEffect(() => {
+    if (boundTabId === null) return;
+    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.session) return;
+
+    chrome.storage.session
+      .get([`browgent_tab_thread_${boundTabId}`])
+      .then((res) => {
+        const candidate = res?.[`browgent_tab_thread_${boundTabId}`];
+        if (typeof candidate === 'string') {
+          setActiveThreadId((prev) => (prev !== null ? prev : candidate));
+        }
+      })
+      .catch(() => {});
+  }, [boundTabId]);
 
   // Load saved configuration, skills, mode, and threads on mount
   useEffect(() => {
@@ -355,7 +423,6 @@ export const App: React.FC = () => {
     loadThreads().then((loaded) => {
       if (loaded && loaded.length > 0) {
         setThreads(loaded);
-        setActiveThreadId(loaded[0].id);
       }
     });
 
@@ -472,7 +539,9 @@ export const App: React.FC = () => {
     setStatus('running');
     setGoal('');
 
+    const targetTabId = boundTabId ?? activeTab?.id;
     if (currentThread) {
+      updateTabActiveThread(currentThread.id, targetTabId);
       setThreads((prev) =>
         prev.map((t) =>
           t.id === currentThread.id
@@ -493,13 +562,14 @@ export const App: React.FC = () => {
         updatedAt: Date.now(),
         turns: [newTurn],
       };
-      setActiveThreadId(newThreadId);
+      updateTabActiveThread(newThreadId, targetTabId);
       setThreads((prev) => [newThread, ...prev]);
     }
 
     port.postMessage({
       type: 'START_AGENT',
       payload: {
+        tabId: targetTabId,
         goal: trimmedGoal,
         mode,
         conversation,
@@ -516,7 +586,12 @@ export const App: React.FC = () => {
   const handleStop = () => {
     const port = getOrCreatePort();
     if (port) {
-      port.postMessage({ type: 'STOP_AGENT' });
+      port.postMessage({
+        type: 'STOP_AGENT',
+        payload: {
+          tabId: boundTabId ?? activeTab?.id,
+        },
+      });
     }
     setStatus('stopped');
     const currentTurnId = activeTurnIdRef.current;
@@ -543,7 +618,7 @@ export const App: React.FC = () => {
   };
 
   const handleNewChat = () => {
-    setActiveThreadId(null);
+    updateTabActiveThread(null);
     activeTurnIdRef.current = null;
     setStatus('idle');
     setGoal('');
@@ -554,21 +629,26 @@ export const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100 antialiased font-sans overflow-hidden">
       {/* Top Header */}
-      <header className="flex items-center justify-between px-3.5 py-2.5 bg-slate-950/80 border-b border-slate-800">
+      <header className="flex items-center justify-between px-3.5 py-2 min-h-[40px] bg-slate-950/80 border-b border-slate-800">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-md bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-md">
             <Bot className="w-4 h-4 text-white" />
           </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-bold text-xs tracking-tight text-slate-200">Browgent</span>
-              <span className="text-[9px] font-semibold uppercase px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                v0.5.0
-              </span>
-            </div>
-            <div className="text-[10px] text-slate-400 font-mono">
-              {PROVIDER_LABELS[config.provider] || config.provider}: {config.model || 'default'}
-            </div>
+          <div className="flex items-center gap-1.5">
+            <span className="font-bold text-xs tracking-tight text-slate-200">Browgent</span>
+            <span className="text-[9px] font-semibold uppercase px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+              v0.5.0
+            </span>
+            <span
+              className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                status === 'running'
+                  ? 'bg-blue-400 animate-pulse'
+                  : status === 'failed'
+                  ? 'bg-rose-400'
+                  : 'bg-emerald-400'
+              }`}
+              title={`Status: ${status}`}
+            />
           </div>
         </div>
 
@@ -629,24 +709,7 @@ export const App: React.FC = () => {
         }}
       />
 
-      {/* File Attachment & Context Controls */}
-      <div className="px-3 py-1.5 bg-slate-950/40 border-t border-slate-800/60">
-        <FileAttachment
-          files={files}
-          onAddFiles={(newFiles) => setFiles((prev) => [...prev, ...newFiles])}
-          onRemoveFile={(idx) => setFiles((prev) => prev.filter((_, i) => i !== idx))}
-          onError={(err) => console.warn('[Browgent File Attachment]', err)}
-          disabled={status === 'running'}
-        />
-      </div>
-
-      {/* Active Tab Bar (directly above the prompt box) */}
-      <ActiveTabBar
-        tab={status === 'running' && agentTab ? agentTab : activeTab}
-        isAgentTarget={status === 'running' && agentTab !== null}
-      />
-
-      {/* Goal Input Footer */}
+      {/* Goal Input Dock */}
       <GoalInput
         goal={goal}
         setGoal={setGoal}
@@ -655,6 +718,24 @@ export const App: React.FC = () => {
         isRunning={status === 'running'}
         onRun={handleRun}
         onStop={handleStop}
+        modelName={config.model || PROVIDER_LABELS[config.provider] || config.provider}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        activeSkillsCount={skills.filter((s) => s.isActive).length}
+        tabComponent={
+          <ActiveTabBar
+            tab={status === 'running' && agentTab ? agentTab : activeTab}
+            isAgentTarget={status === 'running' && agentTab !== null}
+          />
+        }
+        filesComponent={
+          <FileAttachment
+            files={files}
+            onAddFiles={(newFiles) => setFiles((prev) => [...prev, ...newFiles])}
+            onRemoveFile={(idx) => setFiles((prev) => prev.filter((_, i) => i !== idx))}
+            onError={(err) => console.warn('[Browgent File Attachment]', err)}
+            disabled={status === 'running'}
+          />
+        }
       />
 
       {/* History Modal */}
@@ -664,21 +745,21 @@ export const App: React.FC = () => {
         threads={threads}
         activeThreadId={activeThreadId}
         onSelectThread={(id) => {
-          setActiveThreadId(id);
+          updateTabActiveThread(id);
           setStatus('idle');
         }}
         onDeleteThread={(id) => {
           setThreads((prev) => {
             const next = prev.filter((t) => t.id !== id);
             if (activeThreadId === id) {
-              setActiveThreadId(next[0]?.id || null);
+              updateTabActiveThread(next[0]?.id || null);
             }
             return next;
           });
         }}
         onClearAll={() => {
           setThreads([]);
-          setActiveThreadId(null);
+          updateTabActiveThread(null);
           activeTurnIdRef.current = null;
           setStatus('idle');
           saveThreads([]);
