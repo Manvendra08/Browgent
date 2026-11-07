@@ -15,6 +15,8 @@ import {
   Table,
   CheckSquare,
   Search,
+  Pencil,
+  RotateCcw,
 } from 'lucide-react';
 import { Turn } from '../threads';
 import { StepList } from './StepList';
@@ -25,23 +27,61 @@ interface ChatThreadProps {
   isRunning: boolean;
   suggestions?: string[];
   onSuggestionClick?: (prompt: string) => void;
+  onEditPrompt?: (prompt: string) => void;
+  onRetryPrompt?: (prompt: string, mode: Turn['mode']) => void;
 }
 
-const getStarterMeta = (prompt: string): { label: string; icon: React.ReactNode; color: string } => {
+function formatRelativeTime(timestamp?: number): string {
+  if (!timestamp) return 'now';
+  const diff = Date.now() - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+const getStarterMeta = (prompt: string): { label: string; icon: React.ReactNode; color: string; borderHover: string } => {
   const p = prompt.toLowerCase();
   if (p.includes('summarize')) {
-    return { label: 'Summarize', icon: <FileText className="w-3 h-3 text-indigo-400 shrink-0" />, color: 'text-indigo-400' };
+    return {
+      label: 'Summarize',
+      icon: <FileText className="w-3 h-3 text-[#4285F4] shrink-0" />,
+      color: 'text-[#4285F4]',
+      borderHover: 'hover:border-[#4285F4]/60 hover:bg-[#4285F4]/5',
+    };
   }
   if (p.includes('extract') || p.includes('table') || p.includes('price')) {
-    return { label: 'Extract', icon: <Table className="w-3 h-3 text-emerald-400 shrink-0" />, color: 'text-emerald-400' };
+    return {
+      label: 'Extract',
+      icon: <Table className="w-3 h-3 text-[#34A853] shrink-0" />,
+      color: 'text-[#34A853]',
+      borderHover: 'hover:border-[#34A853]/60 hover:bg-[#34A853]/5',
+    };
   }
   if (p.includes('form') || p.includes('fill')) {
-    return { label: 'Automate', icon: <CheckSquare className="w-3 h-3 text-amber-400 shrink-0" />, color: 'text-amber-400' };
+    return {
+      label: 'Automate',
+      icon: <CheckSquare className="w-3 h-3 text-[#FBBC05] shrink-0" />,
+      color: 'text-[#FBBC05]',
+      borderHover: 'hover:border-[#FBBC05]/60 hover:bg-[#FBBC05]/5',
+    };
   }
   if (p.includes('check') || p.includes('broken') || p.includes('audit') || p.includes('layout')) {
-    return { label: 'Audit', icon: <Search className="w-3 h-3 text-sky-400 shrink-0" />, color: 'text-sky-400' };
+    return {
+      label: 'Audit',
+      icon: <Search className="w-3 h-3 text-[#EA4335] shrink-0" />,
+      color: 'text-[#EA4335]',
+      borderHover: 'hover:border-[#EA4335]/60 hover:bg-[#EA4335]/5',
+    };
   }
-  return { label: 'Task', icon: <Sparkles className="w-3 h-3 text-violet-400 shrink-0" />, color: 'text-violet-400' };
+  return {
+    label: 'Task',
+    icon: <Sparkles className="w-3 h-3 text-[#4285F4] shrink-0" />,
+    color: 'text-[#4285F4]',
+    borderHover: 'hover:border-[#4285F4]/60 hover:bg-[#4285F4]/5',
+  };
 };
 
 export const ChatThread: React.FC<ChatThreadProps> = ({
@@ -49,11 +89,14 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
   isRunning,
   suggestions,
   onSuggestionClick,
+  onEditPrompt,
+  onRetryPrompt,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({});
   const [copiedTurnId, setCopiedTurnId] = useState<string | null>(null);
+  const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
 
   const scrollToBottom = () => {
@@ -95,6 +138,16 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
     }
   };
 
+  const handleCopyPrompt = async (turnId: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedPromptId(turnId);
+      setTimeout(() => setCopiedPromptId(null), 2000);
+    } catch {
+      // Fallback
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -104,8 +157,8 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
       {/* Empty State */}
       {turns.length === 0 && (
         <div className="h-full flex flex-col items-center justify-center text-center p-4 text-slate-500">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500/10 to-violet-500/20 border border-indigo-500/20 flex items-center justify-center mb-2.5 shadow-xs">
-            <Sparkles className="w-5 h-5 text-indigo-400" />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#4285F4]/20 via-[#EA4335]/15 via-[#FBBC05]/15 to-[#34A853]/20 border border-slate-700/60 flex items-center justify-center mb-2.5 shadow-xs">
+            <Sparkles className="w-5 h-5 text-[#4285F4]" />
           </div>
           <p className="text-xs font-semibold text-slate-300 tracking-tight">Ready for instructions</p>
           <p className="text-[11px] mt-0.5 max-w-[240px] text-slate-400">
@@ -120,7 +173,7 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                     key={prompt}
                     type="button"
                     onClick={() => onSuggestionClick?.(prompt)}
-                    className="group relative flex flex-col justify-between p-2.5 rounded-lg text-slate-300 bg-slate-900/80 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-800/70 hover:shadow-sm transition cursor-pointer"
+                    className={`group relative flex flex-col justify-between p-2.5 rounded-lg text-slate-300 bg-slate-900/80 border border-slate-800 ${cat.borderHover} hover:shadow-sm transition cursor-pointer`}
                   >
                     <div className="flex items-center gap-1.5 mb-1.5">
                       {cat.icon}
@@ -146,16 +199,59 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
         return (
           <div key={turn.id} className="space-y-2.5">
             {/* User Prompt Bubble */}
-            <div className="flex flex-col items-end">
-              <div className="max-w-[90%] bg-indigo-600/20 border border-indigo-500/30 rounded-xl px-3 py-2 text-xs text-slate-100 shadow-sm space-y-1">
-                <div className="flex items-center justify-between gap-3 text-[10px] text-indigo-300/70 border-b border-indigo-500/20 pb-1 mb-1">
+            <div className="flex flex-col items-end group/turn">
+              <div className="max-w-[90%] bg-blue-600/15 border border-blue-500/30 rounded-xl px-3 py-2 text-xs text-slate-100 shadow-sm space-y-1">
+                <div className="flex items-center justify-between gap-3 text-[10px] text-blue-300/80 border-b border-blue-500/20 pb-1 mb-1">
                   <span className="flex items-center gap-1 font-medium">
-                    <User className="w-3 h-3 text-indigo-400" />
+                    <User className="w-3 h-3 text-[#4285F4]" />
                     You
                   </span>
-                  <span className="uppercase text-[9px] font-semibold tracking-wider px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300">
-                    {turn.mode}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="uppercase text-[9px] font-semibold tracking-wider px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300">
+                      {turn.mode}
+                    </span>
+                    <span className="text-[10px] text-blue-300/60 lowercase">
+                      {formatRelativeTime(turn.createdAt)}
+                    </span>
+                    <div className="flex items-center gap-1 opacity-70 group-hover/turn:opacity-100 transition-opacity">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyPrompt(turn.id, turn.prompt)}
+                        title="Copy prompt"
+                        aria-label="Copy prompt"
+                        className="p-0.5 rounded text-blue-300/70 hover:text-blue-100 hover:bg-blue-500/20 transition cursor-pointer"
+                      >
+                        {copiedPromptId === turn.id ? (
+                          <CheckCheck className="w-3 h-3 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3 h-3" />
+                        )}
+                      </button>
+                      {onEditPrompt && (
+                        <button
+                          type="button"
+                          onClick={() => onEditPrompt(turn.prompt)}
+                          title="Edit prompt"
+                          aria-label="Edit prompt"
+                          className="p-0.5 rounded text-blue-300/70 hover:text-blue-100 hover:bg-blue-500/20 transition cursor-pointer"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                      )}
+                      {onRetryPrompt && (
+                        <button
+                          type="button"
+                          onClick={() => onRetryPrompt(turn.prompt, turn.mode)}
+                          disabled={isRunning}
+                          title="Retry prompt"
+                          aria-label="Retry prompt"
+                          className="p-0.5 rounded text-blue-300/70 hover:text-blue-100 hover:bg-blue-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 <p className="whitespace-pre-wrap leading-relaxed text-[11px] text-slate-200">
@@ -163,7 +259,7 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                 </p>
 
                 {turn.tab && (turn.tab.title || turn.tab.url) && (
-                  <div className="pt-1 flex items-center gap-1 text-[10px] text-indigo-300/80 truncate">
+                  <div className="pt-1 flex items-center gap-1 text-[10px] text-blue-300/80 truncate">
                     <Globe className="w-2.5 h-2.5 shrink-0 opacity-70" />
                     <span className="truncate max-w-[220px]">
                       {turn.tab.title || turn.tab.url}
@@ -191,7 +287,7 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                       Worked for {turn.steps.length} {turn.steps.length === 1 ? 'step' : 'steps'}
                     </span>
                     {turn.status === 'running' && (
-                      <Loader2 className="w-3 h-3 text-indigo-400 animate-spin ml-1" />
+                      <Loader2 className="w-3 h-3 text-[#4285F4] animate-spin ml-1" />
                     )}
                   </div>
                   <span className="text-[10px] text-slate-500">
@@ -210,7 +306,7 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
             {/* Running Indicator (when no steps yet or actively thinking) */}
             {turn.status === 'running' && turn.steps.length === 0 && (
               <div className="flex items-center gap-2 py-1.5 px-2 text-slate-400 text-xs animate-pulse">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#4285F4]" />
                 <span className="text-[11px]">
                   {turn.mode === 'ask'
                     ? 'Browgent is reading this page...'
@@ -223,8 +319,8 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
             {turn.result && (
               <div className="bg-slate-800/80 border border-slate-700/60 rounded-xl p-3 text-xs shadow-sm space-y-1.5">
                 <div className="flex items-center justify-between pb-1 border-b border-slate-700/50">
-                  <div className="flex items-center gap-1.5 font-semibold text-indigo-300 text-[11px]">
-                    <Bot className="w-3.5 h-3.5 text-indigo-400" />
+                  <div className="flex items-center gap-1.5 font-semibold text-blue-300 text-[11px]">
+                    <Bot className="w-3.5 h-3.5 text-[#4285F4]" />
                     <span>Browgent</span>
                   </div>
                   <button
@@ -266,7 +362,7 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
           type="button"
           onClick={scrollToBottom}
           aria-label="Jump to latest"
-          className="sticky bottom-2 ml-auto z-20 flex items-center gap-1 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-semibold rounded-full shadow-lg border border-indigo-400/40 transition cursor-pointer"
+          className="sticky bottom-2 ml-auto z-20 flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-[#4285F4] to-[#2563eb] hover:from-[#3b78e7] hover:to-[#1d4ed8] text-white text-[10px] font-semibold rounded-full shadow-lg border border-blue-400/40 transition cursor-pointer"
         >
           <ArrowDown className="w-3 h-3" />
           Latest

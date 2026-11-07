@@ -18,7 +18,7 @@
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(99, 102, 241, 0.8);
+  background: rgba(66, 133, 244, 0.8);
 }
 
 /* ===================== Day (Light) Theme ===================== */
@@ -39,7 +39,7 @@ html.theme-light ::-webkit-scrollbar-thumb {
 }
 
 html.theme-light ::-webkit-scrollbar-thumb:hover {
-  background: rgba(99, 102, 241, 0.7);
+  background: rgba(66, 133, 244, 0.7);
 }
 
 /* Surfaces */
@@ -104,21 +104,89 @@ html.theme-light [class*="hover\:bg-slate-700"]:hover {
 }
 
 /* Accent tints need darker text on light surfaces */
-html.theme-light [class*="bg-indigo-500\/20"] {
-  background-color: rgba(99, 102, 241, 0.12);
-  color: #3730a3;
+html.theme-light [class*="bg-indigo-500\/20"],
+html.theme-light [class*="bg-blue-500\/20"],
+html.theme-light [class*="bg-blue-600\/15"] {
+  background-color: rgba(66, 133, 244, 0.12);
+  color: #1a73e8;
 }
 
+/* Amber / Warning / Active Skills Badges in Day Light */
+html.theme-light [class*="bg-amber-500\/20"],
+html.theme-light [class*="bg-amber-500\/10"],
+html.theme-light [class*="bg-amber-600\/30"] {
+  background-color: #fef3c7 !important;
+  border-color: #fcd34d !important;
+}
+
+html.theme-light [class*="text-amber-300"],
 html.theme-light [class*="text-amber-400"] {
-  color: #b45309;
+  color: #92400e !important;
 }
 
-html.theme-light [class*="text-indigo-300"] {
-  color: #4338ca;
+html.theme-light [class*="border-amber-500"] {
+  border-color: #fcd34d !important;
 }
 
-html.theme-light [class*="text-indigo-400"] {
-  color: #4338ca;
+/* Rose / Red / Error Banners & Execution Halted in Day Light */
+html.theme-light [class*="bg-rose-950"],
+html.theme-light [class*="bg-rose-500\/20"] {
+  background-color: #fff1f2 !important;
+  border-color: #fecdd3 !important;
+}
+
+html.theme-light [class*="border-rose-800"],
+html.theme-light [class*="border-rose-500"] {
+  border-color: #fecdd3 !important;
+}
+
+html.theme-light [class*="text-rose-300"] {
+  color: #b91c1c !important;
+}
+
+html.theme-light [class*="text-rose-400"] {
+  color: #dc2626 !important;
+}
+
+html.theme-light [class*="bg-rose-950"] p,
+html.theme-light [class*="bg-rose-950"] [class*="text-slate-300"] {
+  color: #7f1d1d !important;
+}
+
+/* Emerald / Success Banners & Completed Steps in Day Light */
+html.theme-light [class*="bg-emerald-950"],
+html.theme-light [class*="bg-emerald-500\/20"],
+html.theme-light [class*="bg-emerald-500\/10"] {
+  background-color: #f0fdf4 !important;
+  border-color: #bbf7d0 !important;
+}
+
+html.theme-light [class*="border-emerald-800"],
+html.theme-light [class*="border-emerald-500"] {
+  border-color: #bbf7d0 !important;
+}
+
+html.theme-light [class*="text-emerald-300"] {
+  color: #15803d !important;
+}
+
+html.theme-light [class*="text-emerald-400"] {
+  color: #16a34a !important;
+}
+
+html.theme-light [class*="bg-emerald-950"] p,
+html.theme-light [class*="bg-emerald-950"] [class*="text-slate-300"] {
+  color: #14532d !important;
+}
+
+html.theme-light [class*="text-indigo-300"],
+html.theme-light [class*="text-blue-300"] {
+  color: #1a73e8;
+}
+
+html.theme-light [class*="text-indigo-400"],
+html.theme-light [class*="text-blue-400"] {
+  color: #1a73e8;
 }
 
 /* Scoped Markdown styling */

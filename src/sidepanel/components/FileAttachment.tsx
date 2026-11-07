@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Paperclip, X, FileText, Image as ImageIcon } from 'lucide-react';
+import { X, FileText, Image as ImageIcon } from 'lucide-react';
 import { AttachedFile } from '../../background/files/parser';
 
 export const MAX_IMAGE_ATTACHMENT_BYTES = 2 * 1024 * 1024;
@@ -11,6 +11,7 @@ interface FileAttachmentProps {
   onRemoveFile: (index: number) => void;
   disabled?: boolean;
   onError?: (message: string) => void;
+  fileInputRef?: React.RefObject<HTMLInputElement>;
 }
 
 export const FileAttachment: React.FC<FileAttachmentProps> = ({
@@ -19,8 +20,10 @@ export const FileAttachment: React.FC<FileAttachmentProps> = ({
   onRemoveFile,
   disabled,
   onError,
+  fileInputRef,
 }) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const internalRef = useRef<HTMLInputElement>(null);
+  const activeInputRef = fileInputRef || internalRef;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
@@ -59,16 +62,16 @@ export const FileAttachment: React.FC<FileAttachmentProps> = ({
       }
     });
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    if (activeInputRef.current) {
+      activeInputRef.current.value = '';
     }
   };
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col">
       <input
         type="file"
-        ref={fileInputRef}
+        ref={activeInputRef}
         onChange={handleFileChange}
         multiple
         className="hidden"
@@ -76,26 +79,8 @@ export const FileAttachment: React.FC<FileAttachmentProps> = ({
         disabled={disabled}
       />
 
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled}
-          className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-indigo-400 transition cursor-pointer"
-        >
-          <Paperclip className="w-3.5 h-3.5" />
-          <span>Attach reference files / images</span>
-        </button>
-
-        {files.length > 0 && (
-          <span className="text-[10px] text-slate-500 font-mono">
-            {files.length} file{files.length > 1 ? 's' : ''} mounted
-          </span>
-        )}
-      </div>
-
       {files.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-0.5">
+        <div className="flex flex-wrap gap-1.5 pt-0.5">
           {files.map((file, idx) => (
             <div
               key={`${file.name}-${idx}`}
@@ -111,7 +96,8 @@ export const FileAttachment: React.FC<FileAttachmentProps> = ({
                 type="button"
                 onClick={() => onRemoveFile(idx)}
                 disabled={disabled}
-                className="text-slate-500 hover:text-rose-400 ml-0.5 flex-shrink-0"
+                aria-label={`Remove ${file.name}`}
+                className="text-slate-500 hover:text-rose-400 ml-0.5 flex-shrink-0 cursor-pointer"
               >
                 <X className="w-2.5 h-2.5" />
               </button>

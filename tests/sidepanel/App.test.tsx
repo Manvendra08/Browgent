@@ -396,4 +396,102 @@ describe('Sidepanel App Conversational Flow', () => {
       expect(screen.getByText('Result for 101')).toBeDefined();
     });
   });
+
+  it('supports prompt toolbar: relative time, copy prompt, edit prompt, and retry prompt', async () => {
+    fakeStorage['browgent_threads'] = [
+      {
+        id: 'thread-test',
+        title: 'Prompt test',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        turns: [
+          {
+            id: 'turn-1',
+            mode: 'agent',
+            prompt: 'Scrape financial report table',
+            steps: [],
+            result: 'Report scraped',
+            status: 'completed',
+            createdAt: Date.now(),
+          },
+        ],
+      },
+    ];
+    fakeSessionStorage['browgent_tab_thread_101'] = 'thread-test';
+
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: writeTextMock,
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Scrape financial report table')).toBeDefined();
+    });
+
+    // Check relative time "now"
+    expect(screen.getByText('now')).toBeDefined();
+
+    // Check Copy prompt button
+    const copyBtn = screen.getByTitle('Copy prompt');
+    fireEvent.click(copyBtn);
+    expect(writeTextMock).toHaveBeenCalledWith('Scrape financial report table');
+
+    // Check Edit prompt button (populates composer input)
+    const editBtn = screen.getByTitle('Edit prompt');
+    fireEvent.click(editBtn);
+    const input = screen.getByPlaceholderText(/Enter your automation goal/i) as HTMLTextAreaElement;
+    expect(input.value).toBe('Scrape financial report table');
+
+    // Check Retry prompt button (re-triggers agent execution)
+    const retryBtn = screen.getByTitle('Retry prompt');
+    fireEvent.click(retryBtn);
+
+    expect(mockPostMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'START_AGENT',
+        payload: expect.objectContaining({
+          goal: 'Scrape financial report table',
+          mode: 'agent',
+        }),
+      }),
+    );
+  });
+
+  it('renders + button and screenshot camera button in composer, omitting duplicate active skills chip', async () => {
+    const captureVisibleTabMock = vi.fn((...args: unknown[]) => {
+      const cb = typeof args[args.length - 1] === 'function' ? (args[args.length - 1] as (res: string) => void) : null;
+      if (cb) cb('data:image/jpeg;base64,mockScreenshotData');
+    });
+    vi.mocked(chrome.tabs).captureVisibleTab = captureVisibleTabMock as unknown as typeof chrome.tabs.captureVisibleTab;
+
+    render(<App />);
+
+    // Wait for activeTab to resolve from async query
+    await waitFor(() => {
+      expect(screen.getByText('example.com')).toBeDefined();
+    });
+
+    // Verify '+' button to attach files
+    const attachBtn = screen.getByTitle('Attach files or images');
+    expect(attachBtn).toBeDefined();
+
+    // Verify Screenshot button
+    const screenBtn = screen.getByTitle('Attach screenshot of active page');
+    expect(screenBtn).toBeDefined();
+
+    // Verify duplicate active skills chip (⚡) is NOT rendered in the composer dock
+    expect(screen.queryByTitle('Active skills')).toBeNull();
+
+    // Clicking screenshot button captures active tab and mounts screenshot file
+    fireEvent.click(screenBtn);
+
+    await waitFor(() => {
+      expect(captureVisibleTabMock).toHaveBeenCalled();
+      expect(screen.getByText(/Screenshot-Example_Page/)).toBeDefined();
+    });
+  });
 });

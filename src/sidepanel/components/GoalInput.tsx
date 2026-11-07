@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Square, Sparkles, X, MessageSquare, Bot, Cpu } from 'lucide-react';
+import { Play, Square, Sparkles, X, MessageSquare, Bot, Cpu, Plus, Camera } from 'lucide-react';
 import { TurnMode } from '../threads';
 
 interface GoalInputProps {
@@ -12,8 +12,8 @@ interface GoalInputProps {
   onStop: () => void;
   modelName?: string;
   onOpenSettings?: () => void;
-  activeSkillsCount?: number;
-  onToggleSkillsBar?: () => void;
+  onAttachFile?: () => void;
+  onCaptureScreenshot?: () => void;
   tabComponent?: React.ReactNode;
   filesComponent?: React.ReactNode;
 }
@@ -28,8 +28,8 @@ export const GoalInput: React.FC<GoalInputProps> = ({
   onStop,
   modelName,
   onOpenSettings,
-  activeSkillsCount,
-  onToggleSkillsBar,
+  onAttachFile,
+  onCaptureScreenshot,
   tabComponent,
   filesComponent,
 }) => {
@@ -51,7 +51,10 @@ export const GoalInput: React.FC<GoalInputProps> = ({
       : 'Enter your automation goal... (e.g. Find top 3 products on this page and summarize prices)';
 
   return (
-    <div className="p-2.5 bg-slate-950/90 border-t border-slate-800/80 flex flex-col gap-1.5">
+    <div className="p-2.5 bg-slate-950/90 border-t border-slate-800/80 flex flex-col gap-1.5 relative">
+      {/* Subtle Google Multi-color Hairline Accent */}
+      <div className="h-[1.5px] -mt-2.5 -mx-2.5 mb-1 bg-gradient-to-r from-[#4285F4] via-[#EA4335] via-[#FBBC05] to-[#34A853] opacity-60" />
+
       {/* Optional Embedded Tab Context Bar */}
       {tabComponent}
 
@@ -59,7 +62,7 @@ export const GoalInput: React.FC<GoalInputProps> = ({
       {filesComponent}
 
       {/* Main Unified Composer Card */}
-      <div className="bg-slate-900/90 border border-slate-800/90 rounded-xl p-2.5 flex flex-col gap-2 shadow-lg focus-within:border-indigo-500/60 focus-within:ring-1 focus-within:ring-indigo-500/20 transition">
+      <div className="bg-slate-900/90 border border-slate-800/90 rounded-xl p-2.5 flex flex-col gap-2 shadow-lg focus-within:border-blue-500/60 focus-within:ring-1 focus-within:ring-blue-500/20 transition">
         {/* Top Segmented Mode Bar */}
         <div className="flex items-center justify-between">
           <div className="inline-flex items-center bg-slate-950/80 p-0.5 rounded-lg border border-slate-800/80 text-xs">
@@ -69,7 +72,7 @@ export const GoalInput: React.FC<GoalInputProps> = ({
               aria-pressed={mode === 'ask'}
               className={`flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer ${
                 mode === 'ask'
-                  ? 'bg-indigo-600 text-white shadow-xs'
+                  ? 'bg-[#34A853] text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -82,7 +85,7 @@ export const GoalInput: React.FC<GoalInputProps> = ({
               aria-pressed={mode === 'agent'}
               className={`flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer ${
                 mode === 'agent'
-                  ? 'bg-indigo-600 text-white shadow-xs'
+                  ? 'bg-[#4285F4] text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -116,32 +119,50 @@ export const GoalInput: React.FC<GoalInputProps> = ({
               <X className="w-3.5 h-3.5" />
             </button>
           )}
-          <Sparkles className="w-3.5 h-3.5 text-indigo-400/50 absolute right-1 top-1 pointer-events-none" />
+          <Sparkles className="w-3.5 h-3.5 text-[#4285F4]/60 absolute right-1 top-1 pointer-events-none" />
         </div>
 
         {/* Bottom Shelf Toolbar */}
         <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/60 gap-1.5">
-          <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex items-center gap-1 min-w-0">
+            {/* '+' button to attach files/images */}
+            {onAttachFile && (
+              <button
+                type="button"
+                onClick={onAttachFile}
+                disabled={isRunning}
+                title="Attach files or images"
+                aria-label="Attach files or images"
+                className="p-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-700/60 transition cursor-pointer flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Screen capture button */}
+            {onCaptureScreenshot && (
+              <button
+                type="button"
+                onClick={onCaptureScreenshot}
+                disabled={isRunning}
+                title="Attach screenshot of active page"
+                aria-label="Attach screenshot of active page"
+                className="p-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-700/60 transition cursor-pointer flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Camera className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Model Pill */}
             {modelName && (
               <button
                 type="button"
                 onClick={onOpenSettings}
                 title={`Configured Model: ${modelName} (Click to open settings)`}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-[10px] text-slate-300 font-mono transition cursor-pointer truncate max-w-[140px]"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-[10px] text-slate-300 font-mono transition cursor-pointer truncate max-w-[130px]"
               >
-                <Cpu className="w-2.5 h-2.5 text-indigo-400 shrink-0" />
+                <Cpu className="w-2.5 h-2.5 text-[#4285F4] shrink-0" />
                 <span className="truncate">{modelName}</span>
-              </button>
-            )}
-
-            {activeSkillsCount !== undefined && activeSkillsCount > 0 && (
-              <button
-                type="button"
-                onClick={onToggleSkillsBar}
-                title="Active skills"
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-[10px] text-amber-300 font-medium transition cursor-pointer shrink-0"
-              >
-                <span>⚡ {activeSkillsCount}</span>
               </button>
             )}
           </div>
@@ -153,7 +174,7 @@ export const GoalInput: React.FC<GoalInputProps> = ({
               <button
                 type="button"
                 onClick={onStop}
-                className="flex items-center gap-1.5 px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-md text-xs font-medium transition shadow-xs animate-pulse cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1 bg-[#EA4335] hover:bg-[#d93025] text-white rounded-md text-xs font-medium transition shadow-xs animate-pulse cursor-pointer"
                 title="Stop Agent"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
@@ -164,7 +185,7 @@ export const GoalInput: React.FC<GoalInputProps> = ({
                 type="button"
                 onClick={onRun}
                 disabled={!goal.trim()}
-                className="flex items-center gap-1.5 px-3.5 py-1 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-md text-xs font-medium transition shadow-sm cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-1 bg-gradient-to-r from-[#4285F4] to-[#2563eb] hover:from-[#3b78e7] hover:to-[#1d4ed8] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-md text-xs font-medium transition shadow-sm cursor-pointer"
                 title={mode === 'ask' ? 'Ask Browgent' : 'Run Agent'}
               >
                 <Play className="w-3.5 h-3.5 fill-current" />

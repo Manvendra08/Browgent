@@ -86,6 +86,7 @@ export const App: React.FC = () => {
 
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Debounced save for threads
   useEffect(() => {
@@ -511,10 +512,73 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleRun = () => {
-    if (!goal.trim()) return;
+  const handleAttachFiles = () => {
+    fileInputRef.current?.click();
+  };
 
-    const trimmedGoal = goal.trim();
+  const handleCaptureScreenshot = async () => {
+    if (status === 'running') return;
+    try {
+      const targetTab = status === 'running' && agentTab ? agentTab : activeTab;
+      const targetTabId = boundTabId ?? targetTab?.id;
+      let windowId: number | undefined = targetTab?.windowId;
+
+      if (typeof windowId !== 'number' && typeof targetTabId === 'number' && typeof chrome !== 'undefined' && chrome.tabs?.get) {
+        try {
+          const tab = await chrome.tabs.get(targetTabId);
+          windowId = tab?.windowId;
+        } catch {
+          // ignore
+        }
+      }
+
+      let dataUrl: string | null = null;
+      if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.captureVisibleTab) {
+        dataUrl = await new Promise<string | null>((resolve) => {
+          try {
+            const callback = (res?: string) => {
+              if (chrome.runtime?.lastError || !res) {
+                resolve(null);
+              } else {
+                resolve(res);
+              }
+            };
+            if (typeof windowId === 'number') {
+              chrome.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 75 }, callback);
+            } else {
+              chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 75 }, callback);
+            }
+          } catch {
+            resolve(null);
+          }
+        });
+      }
+
+      if (dataUrl) {
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/:/g, '');
+        const pageTitle = (targetTab?.title || 'page').slice(0, 15).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const screenshotFile: AttachedFile = {
+          name: `Screenshot-${pageTitle}-${timeStr}.jpg`,
+          type: 'image/jpeg',
+          size: Math.round(dataUrl.length * 0.75),
+          content: dataUrl,
+          isImage: true,
+        };
+        setFiles((prev) => [...prev, screenshotFile]);
+      } else {
+        console.warn('[Browgent] Could not capture screenshot of active page');
+      }
+    } catch (err) {
+      console.warn('[Browgent] Failed to capture page screenshot:', err);
+    }
+  };
+
+  const handleRun = (overrideGoal?: unknown, overrideMode?: TurnMode) => {
+    const rawGoal = typeof overrideGoal === 'string' ? overrideGoal : goal;
+    const runMode = overrideMode !== undefined ? overrideMode : mode;
+    if (!rawGoal.trim()) return;
+
+    const trimmedGoal = rawGoal.trim();
     const port = getOrCreatePort();
     if (!port) {
       setStatus('failed');
@@ -527,7 +591,7 @@ export const App: React.FC = () => {
     const newTurnId = `turn-${Date.now()}`;
     const newTurn: Turn = {
       id: newTurnId,
-      mode,
+      mode: runMode,
       prompt: trimmedGoal,
       tab: activeTab ? { title: activeTab.title, url: scrubUrl(activeTab.url) } : undefined,
       steps: [],
@@ -537,7 +601,9 @@ export const App: React.FC = () => {
 
     activeTurnIdRef.current = newTurnId;
     setStatus('running');
-    setGoal('');
+    if (typeof overrideGoal !== 'string') {
+      setGoal('');
+    }
 
     const targetTabId = boundTabId ?? activeTab?.id;
     if (currentThread) {
@@ -571,7 +637,7 @@ export const App: React.FC = () => {
       payload: {
         tabId: targetTabId,
         goal: trimmedGoal,
-        mode,
+        mode: runMode,
         conversation,
         llmConfig: config,
         maxSteps,
@@ -628,24 +694,27 @@ export const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100 antialiased font-sans overflow-hidden">
+      {/* Google Multi-Color Brand Header Accent */}
+      <div className="h-[2.5px] w-full bg-gradient-to-r from-[#4285F4] via-[#EA4335] via-[#FBBC05] to-[#34A853]" />
+
       {/* Top Header */}
       <header className="flex items-center justify-between px-3.5 py-2 min-h-[40px] bg-slate-950/80 border-b border-slate-800">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-md">
+          <div className="w-6 h-6 rounded-md bg-gradient-to-tr from-[#4285F4] via-[#EA4335] to-[#FBBC05] flex items-center justify-center shadow-md">
             <Bot className="w-4 h-4 text-white" />
           </div>
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-xs tracking-tight text-slate-200">Browgent</span>
-            <span className="text-[9px] font-semibold uppercase px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+            <span className="text-[9px] font-semibold uppercase px-1.5 py-0.2 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
               v0.5.0
             </span>
             <span
               className={`w-1.5 h-1.5 rounded-full transition-colors ${
                 status === 'running'
-                  ? 'bg-blue-400 animate-pulse'
+                  ? 'bg-[#4285F4] animate-pulse'
                   : status === 'failed'
-                  ? 'bg-rose-400'
-                  : 'bg-emerald-400'
+                  ? 'bg-[#EA4335]'
+                  : 'bg-[#34A853]'
               }`}
               title={`Status: ${status}`}
             />
@@ -658,7 +727,7 @@ export const App: React.FC = () => {
             onClick={handleNewChat}
             title="New chat"
             aria-label="New chat"
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
@@ -668,7 +737,7 @@ export const App: React.FC = () => {
             onClick={() => setIsHistoryOpen(true)}
             title="Chat history"
             aria-label="Chat history"
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
           >
             <Clock className="w-3.5 h-3.5" />
           </button>
@@ -679,7 +748,7 @@ export const App: React.FC = () => {
             title={theme === 'dark' ? 'Switch to day mode' : 'Switch to night mode'}
             aria-label={theme === 'dark' ? 'Switch to day mode' : 'Switch to night mode'}
             aria-pressed={theme === 'light'}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
           >
             {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
           </button>
@@ -689,7 +758,7 @@ export const App: React.FC = () => {
             onClick={() => setIsSettingsOpen(true)}
             title="Settings"
             aria-label="Open settings"
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
           >
             <Settings className="w-3.5 h-3.5" />
           </button>
@@ -707,6 +776,12 @@ export const App: React.FC = () => {
         onSuggestionClick={(prompt) => {
           setGoal(prompt);
         }}
+        onEditPrompt={(prompt) => {
+          setGoal(prompt);
+        }}
+        onRetryPrompt={(prompt, turnMode) => {
+          handleRun(prompt, turnMode);
+        }}
       />
 
       {/* Goal Input Dock */}
@@ -720,7 +795,8 @@ export const App: React.FC = () => {
         onStop={handleStop}
         modelName={config.model || PROVIDER_LABELS[config.provider] || config.provider}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        activeSkillsCount={skills.filter((s) => s.isActive).length}
+        onAttachFile={handleAttachFiles}
+        onCaptureScreenshot={handleCaptureScreenshot}
         tabComponent={
           <ActiveTabBar
             tab={status === 'running' && agentTab ? agentTab : activeTab}
@@ -734,6 +810,7 @@ export const App: React.FC = () => {
             onRemoveFile={(idx) => setFiles((prev) => prev.filter((_, i) => i !== idx))}
             onError={(err) => console.warn('[Browgent File Attachment]', err)}
             disabled={status === 'running'}
+            fileInputRef={fileInputRef}
           />
         }
       />

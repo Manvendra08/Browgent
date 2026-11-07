@@ -42,7 +42,7 @@ export const ActiveTabBar: React.FC<ActiveTabBarProps> = ({ tab, isAgentTarget =
       title={restricted ? `${title} — not automatable (Chrome internal page)` : `${title}${domain ? ` — ${domain}` : ''}`}
     >
       {isAgentTarget ? (
-        <Crosshair className="w-3 h-3 text-indigo-400 shrink-0" />
+        <Crosshair className="w-3 h-3 text-[#4285F4] shrink-0" />
       ) : restricted ? (
         <ShieldAlert className="w-3 h-3 text-amber-400 shrink-0" />
       ) : secureFav && !favFailed ? (
@@ -61,7 +61,7 @@ export const ActiveTabBar: React.FC<ActiveTabBarProps> = ({ tab, isAgentTarget =
       </span>
 
       {isAgentTarget && (
-        <span className="shrink-0 px-1 py-px rounded bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-[9px] font-medium uppercase tracking-wide">
+        <span className="shrink-0 px-1 py-px rounded bg-blue-500/20 border border-blue-500/40 text-blue-300 text-[9px] font-medium uppercase tracking-wide">
           Target
         </span>
       )}
