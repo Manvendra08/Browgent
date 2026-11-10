@@ -17,15 +17,17 @@ import {
   Search,
   Pencil,
   RotateCcw,
+  Compass,
 } from 'lucide-react';
 import { Turn } from '../threads';
 import { StepList } from './StepList';
 import { Markdown } from './Markdown';
+import { ContextualStarter } from '../starters';
 
 interface ChatThreadProps {
   turns: Turn[];
   isRunning: boolean;
-  suggestions?: string[];
+  suggestions?: Array<string | ContextualStarter>;
   onSuggestionClick?: (prompt: string) => void;
   onEditPrompt?: (prompt: string) => void;
   onRetryPrompt?: (prompt: string, mode: Turn['mode']) => void;
@@ -42,8 +44,57 @@ function formatRelativeTime(timestamp?: number): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-const getStarterMeta = (prompt: string): { label: string; icon: React.ReactNode; color: string; borderHover: string } => {
-  const p = prompt.toLowerCase();
+const getStarterMeta = (
+  starter: string | ContextualStarter,
+): { label: string; icon: React.ReactNode; color: string; borderHover: string } => {
+  if (typeof starter === 'object' && starter !== null) {
+    switch (starter.category) {
+      case 'summarize':
+        return {
+          label: starter.label || 'Summarize',
+          icon: <FileText className="w-3 h-3 text-[#4285F4] shrink-0" />,
+          color: 'text-[#4285F4]',
+          borderHover: 'hover:border-[#4285F4]/60 hover:bg-[#4285F4]/5',
+        };
+      case 'extract':
+        return {
+          label: starter.label || 'Extract',
+          icon: <Table className="w-3 h-3 text-[#34A853] shrink-0" />,
+          color: 'text-[#34A853]',
+          borderHover: 'hover:border-[#34A853]/60 hover:bg-[#34A853]/5',
+        };
+      case 'automate':
+        return {
+          label: starter.label || 'Automate',
+          icon: <CheckSquare className="w-3 h-3 text-[#FBBC05] shrink-0" />,
+          color: 'text-[#FBBC05]',
+          borderHover: 'hover:border-[#FBBC05]/60 hover:bg-[#FBBC05]/5',
+        };
+      case 'audit':
+        return {
+          label: starter.label || 'Audit',
+          icon: <Search className="w-3 h-3 text-[#EA4335] shrink-0" />,
+          color: 'text-[#EA4335]',
+          borderHover: 'hover:border-[#EA4335]/60 hover:bg-[#EA4335]/5',
+        };
+      case 'compare':
+        return {
+          label: starter.label || 'Compare',
+          icon: <Table className="w-3 h-3 text-[#34A853] shrink-0" />,
+          color: 'text-[#34A853]',
+          borderHover: 'hover:border-[#34A853]/60 hover:bg-[#34A853]/5',
+        };
+      case 'navigate':
+        return {
+          label: starter.label || 'Explore',
+          icon: <Compass className="w-3 h-3 text-[#4285F4] shrink-0" />,
+          color: 'text-[#4285F4]',
+          borderHover: 'hover:border-[#4285F4]/60 hover:bg-[#4285F4]/5',
+        };
+    }
+  }
+
+  const p = (typeof starter === 'string' ? starter : starter.prompt).toLowerCase();
   if (p.includes('summarize')) {
     return {
       label: 'Summarize',
@@ -166,13 +217,14 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
           </p>
           {suggestions && suggestions.length > 0 && (
             <div className="mt-3.5 w-full max-w-[340px] grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
-              {suggestions.map((prompt) => {
-                const cat = getStarterMeta(prompt);
+              {suggestions.map((item, idx) => {
+                const promptText = typeof item === 'string' ? item : item.prompt;
+                const cat = getStarterMeta(item);
                 return (
                   <button
-                    key={prompt}
+                    key={typeof item === 'string' ? item : `${item.label}-${idx}`}
                     type="button"
-                    onClick={() => onSuggestionClick?.(prompt)}
+                    onClick={() => onSuggestionClick?.(promptText)}
                     className={`group relative flex flex-col justify-between p-2.5 rounded-lg text-slate-300 bg-slate-900/80 border border-slate-800 ${cat.borderHover} hover:shadow-sm transition cursor-pointer`}
                   >
                     <div className="flex items-center gap-1.5 mb-1.5">
@@ -182,7 +234,7 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                       </span>
                     </div>
                     <span className="text-[11px] text-slate-300 group-hover:text-slate-100 transition line-clamp-2 leading-snug">
-                      {prompt}
+                      {promptText}
                     </span>
                   </button>
                 );

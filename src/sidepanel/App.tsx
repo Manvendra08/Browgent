@@ -27,15 +27,11 @@ import {
   stashProviderConfig,
   type ProviderConfigMap,
 } from './providerConfigs';
+import { getContextualStarters, BLANK_PAGE_STARTERS } from './starters';
 
 const DEFAULT_CONFIG: LLMConfig = DEFAULT_LLM_CONFIG;
 
-export const DEFAULT_PROMPTS: string[] = [
-  'Summarize the key points of this page in 5 bullets',
-  'Extract all products with names and prices into a markdown table',
-  'Fill out the form on this page with sensible test data, then review before submitting',
-  'Check this page for broken links and layout issues',
-];
+export const DEFAULT_PROMPTS: string[] = BLANK_PAGE_STARTERS.map((s) => s.prompt);
 
 const PROVIDER_LABELS: Record<string, string> = {
   omniroute: 'OmniRoute',
@@ -772,7 +768,7 @@ export const App: React.FC = () => {
       <ChatThread
         turns={currentThread?.turns || []}
         isRunning={status === 'running'}
-        suggestions={DEFAULT_PROMPTS}
+        suggestions={getContextualStarters(activeTab?.url, activeTab?.title)}
         onSuggestionClick={(prompt) => {
           setGoal(prompt);
         }}
