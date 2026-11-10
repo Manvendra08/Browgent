@@ -48,6 +48,18 @@ export const GoalInput: React.FC<GoalInputProps> = ({
     };
   }, []);
 
+  // Stop voice recognition when agent starts running
+  useEffect(() => {
+    if (isRunning && isListening) {
+      try {
+        recognitionRef.current?.stop();
+      } catch {
+        // ignore
+      }
+      setIsListening(false);
+    }
+  }, [isRunning, isListening]);
+
   const toggleVoiceInput = () => {
     if (isRunning) return;
 

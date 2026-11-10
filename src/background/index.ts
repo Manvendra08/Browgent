@@ -217,7 +217,7 @@ if (typeof chrome !== 'undefined' && chrome.contextMenus && chrome.contextMenus.
             if (typeof chrome.sidePanel.open === 'function') {
               chrome.sidePanel.open({ tabId }).catch((err) => {
                 console.warn('[Browgent] Failed to open side panel for tab:', tabId, err);
-                if (typeof tab.windowId === 'number') {
+                if (tab && typeof tab.windowId === 'number') {
                   chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
                 }
               });

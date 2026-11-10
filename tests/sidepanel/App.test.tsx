@@ -466,7 +466,7 @@ describe('Sidepanel App Conversational Flow', () => {
       const cb = typeof args[args.length - 1] === 'function' ? (args[args.length - 1] as (res: string) => void) : null;
       if (cb) cb('data:image/jpeg;base64,mockScreenshotData');
     });
-    vi.mocked(chrome.tabs).captureVisibleTab = captureVisibleTabMock as unknown as typeof chrome.tabs.captureVisibleTab;
+    (chrome.tabs as any).captureVisibleTab = captureVisibleTabMock;
 
     render(<App />);
 

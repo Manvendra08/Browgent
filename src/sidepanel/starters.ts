@@ -1,3 +1,6 @@
+import { LLMConfig } from '../background/llm/types';
+import { queryLLMRaw } from '../background/llm/client';
+
 export interface ContextualStarter {
   label: string;
   category: 'summarize' | 'extract' | 'automate' | 'audit' | 'compare' | 'navigate';
@@ -271,9 +274,6 @@ export function getContextualStarters(url?: string | null, title?: string | null
     },
   ];
 }
-
-import { LLMConfig } from '../types';
-import { queryLLMRaw } from '../background/llm/client';
 
 export async function generateSmartStartersWithLLM(
   config: LLMConfig,

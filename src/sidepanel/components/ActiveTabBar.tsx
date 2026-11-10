@@ -7,6 +7,7 @@ export interface ActiveTabInfo {
   title?: string;
   url?: string;
   favIconUrl?: string;
+  windowId?: number;
 }
 
 interface ActiveTabBarProps {

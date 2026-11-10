@@ -173,6 +173,7 @@ export const App: React.FC = () => {
         title: t.title,
         url: scrubUrl(t.url),
         favIconUrl: t.favIconUrl,
+        windowId: t.windowId,
       });
     } catch {
       // Ignore transient query failures
@@ -523,7 +524,7 @@ export const App: React.FC = () => {
   const handleCaptureScreenshot = async () => {
     if (status === 'running') return;
     try {
-      const targetTab = status === 'running' && agentTab ? agentTab : activeTab;
+      const targetTab = agentTab ?? activeTab;
       const targetTabId = boundTabId ?? targetTab?.id;
       let windowId: number | undefined = targetTab?.windowId;
 
@@ -577,13 +578,25 @@ export const App: React.FC = () => {
     }
   };
 
+  const smartStartersAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      smartStartersAbortRef.current?.abort();
+    };
+  }, [activeTab?.url]);
+
   const handleGenerateSmartStarters = async () => {
     if (isGeneratingStarters || status === 'running') return;
-    const currentTab = status === 'running' && agentTab ? agentTab : activeTab;
+    const currentTab = agentTab ?? activeTab;
     const targetUrl = currentTab?.url;
     if (!targetUrl || isBlankOrInternalPage(targetUrl)) return;
 
     setIsGeneratingStarters(true);
+    // Cancel any in-flight starters request
+    smartStartersAbortRef.current?.abort();
+    const abortCtrl = new AbortController();
+    smartStartersAbortRef.current = abortCtrl;
     try {
       let pageText = '';
       const targetTabId = boundTabId ?? currentTab?.id;
@@ -619,16 +632,19 @@ export const App: React.FC = () => {
         targetUrl,
         currentTab?.title || '',
         pageText || currentTab?.title || '',
+        abortCtrl.signal,
       );
 
-      if (generated && generated.length > 0) {
+      if (!abortCtrl.signal.aborted && generated && generated.length > 0) {
         setCustomStarters((prev) => ({
           ...prev,
           [targetUrl]: generated,
         }));
       }
     } catch (err) {
-      console.warn('[Browgent] Could not generate AI starters:', err);
+      if ((err as { name?: string })?.name !== 'AbortError') {
+        console.warn('[Browgent] Could not generate AI starters:', err);
+      }
     } finally {
       setIsGeneratingStarters(false);
     }

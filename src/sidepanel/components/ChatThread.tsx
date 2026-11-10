@@ -48,6 +48,12 @@ function formatRelativeTime(timestamp?: number): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+function hasMarkdownTable(text?: string | null): boolean {
+  if (!text) return false;
+  const tableLines = text.split('\n').filter((l) => l.trim().startsWith('|') && l.trim().endsWith('|'));
+  return tableLines.length >= 2;
+}
+
 const getStarterMeta = (
   starter: string | ContextualStarter,
 ): { label: string; icon: React.ReactNode; color: string; borderHover: string } => {
@@ -95,10 +101,17 @@ const getStarterMeta = (
           color: 'text-[#4285F4]',
           borderHover: 'hover:border-[#4285F4]/60 hover:bg-[#4285F4]/5',
         };
+      default:
+        return {
+          label: 'Task',
+          icon: <Sparkles className="w-3 h-3 text-[#4285F4] shrink-0" />,
+          color: 'text-[#4285F4]',
+          borderHover: 'hover:border-[#4285F4]/60 hover:bg-[#4285F4]/5',
+        };
     }
   }
 
-  const p = (typeof starter === 'string' ? starter : starter.prompt).toLowerCase();
+  const p = starter.toLowerCase();
   if (p.includes('summarize')) {
     return {
       label: 'Summarize',
@@ -234,8 +247,6 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
             .join(','),
         );
       downloadTextFile(`browgent-data-${turnId.slice(0, 8)}.csv`, csvRows.join('\n'), 'text/csv');
-    } else {
-      handleExportMarkdown(turnId, text);
     }
   };
 
@@ -440,7 +451,7 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                     <span>Browgent</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    {turn.result.includes('|') && (
+                    {hasMarkdownTable(turn.result) && (
                       <button
                         type="button"
                         onClick={() => handleExportCSV(turn.id, turn.result!)}
