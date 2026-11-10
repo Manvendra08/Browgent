@@ -773,7 +773,7 @@ export const App: React.FC = () => {
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-xs tracking-tight text-slate-200">Browgent</span>
             <span className="text-[9px] font-semibold uppercase px-1.5 py-0.2 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
-              v0.5.0
+              v0.6.0
             </span>
             <span
               className={`w-1.5 h-1.5 rounded-full transition-colors ${
