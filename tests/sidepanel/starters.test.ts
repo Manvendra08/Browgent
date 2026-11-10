@@ -1,9 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   getContextualStarters,
   isBlankOrInternalPage,
   BLANK_PAGE_STARTERS,
+  generateSmartStartersWithLLM,
 } from '../../src/sidepanel/starters';
+import * as client from '../../src/background/llm/client';
 
 describe('Contextual Starters Engine', () => {
   it('detects blank and internal browser URLs', () => {
@@ -22,56 +24,77 @@ describe('Contextual Starters Engine', () => {
     const blank1 = getContextualStarters(null);
     expect(blank1).toHaveLength(3);
     expect(blank1).toEqual(BLANK_PAGE_STARTERS);
-
-    const blank2 = getContextualStarters('about:blank');
-    expect(blank2).toHaveLength(3);
-
-    const blank3 = getContextualStarters('chrome://newtab');
-    expect(blank3).toHaveLength(3);
+    expect(blank1[0].label).toBe('Explore & Research');
+    expect(blank1[1].label).toBe('Help Me Fill Form');
+    expect(blank1[2].label).toBe('Find & Compare');
   });
 
-  it('returns tailored e-commerce prompts on retail domains or product pages', () => {
+  it('returns tailored consumer finance/market prompts on financial portals like Moneycontrol', () => {
+    const moneycontrol = getContextualStarters(
+      'https://www.moneycontrol.com/news/business/markets/',
+      'Business News: Stock and Share Market News, Economy...',
+    );
+    expect(moneycontrol).toHaveLength(3);
+    expect(moneycontrol[0].label).toBe('Market Highlights');
+    expect(moneycontrol[1].label).toBe('Top Stock Movers');
+    expect(moneycontrol[2].label).toBe('Analyst Sentiment');
+
+    // Asserts no developer jargon
+    for (const starter of moneycontrol) {
+      expect(starter.prompt.toLowerCase()).not.toContain('markdown table');
+      expect(starter.prompt.toLowerCase()).not.toContain('inspect interactive');
+      expect(starter.prompt.toLowerCase()).not.toContain('dom');
+    }
+  });
+
+  it('returns end-user shopping prompts on e-commerce sites', () => {
     const amazon = getContextualStarters('https://www.amazon.com/dp/B08N5WRWNW', 'Wireless Noise Cancelling Headphones');
     expect(amazon).toHaveLength(3);
-    expect(amazon.some((s) => s.category === 'compare')).toBe(true);
-    expect(amazon.some((s) => s.prompt.toLowerCase().includes('coupon') || s.prompt.toLowerCase().includes('review'))).toBe(true);
-
-    const flipkart = getContextualStarters('https://www.flipkart.com/item/123', 'Smartphone');
-    expect(flipkart).toHaveLength(3);
-    expect(flipkart.some((s) => s.category === 'compare')).toBe(true);
+    expect(amazon[0].label).toBe('Buyer Advice');
+    expect(amazon[1].label).toBe('Compare Options');
+    expect(amazon[2].label).toBe('Deals & Discounts');
   });
 
-  it('returns travel and booking prompts on travel domains', () => {
+  it('returns end-user travel prompts on booking sites', () => {
     const expedia = getContextualStarters('https://www.expedia.com/Hotel-Search?destination=Pune', 'Hotels in Pune');
     expect(expedia).toHaveLength(3);
-    expect(expedia.some((s) => s.prompt.toLowerCase().includes('amenities') || s.prompt.toLowerCase().includes('rating'))).toBe(true);
-    expect(expedia.some((s) => s.category === 'compare')).toBe(true);
+    expect(expedia[0].label).toBe('Best Value Stays');
+    expect(expedia[1].label).toBe('Check Hidden Catches');
+    expect(expedia[2].label).toBe('Booking Assistance');
   });
 
-  it('returns social & network prompts on LinkedIn or Twitter', () => {
-    const linkedin = getContextualStarters('https://www.linkedin.com/in/manvendra-anjan', 'Manvendra Anjan | LinkedIn');
-    expect(linkedin).toHaveLength(3);
-    expect(linkedin.some((s) => s.label === 'Profile Intel')).toBe(true);
-    expect(linkedin.some((s) => s.label === 'Draft Response')).toBe(true);
-  });
-
-  it('returns code intelligence prompts on GitHub and developer docs', () => {
-    const github = getContextualStarters('https://github.com/Manvendra08/Browgent', 'Manvendra08/Browgent');
-    expect(github).toHaveLength(3);
-    expect(github.some((s) => s.label === 'Explain Code')).toBe(true);
-    expect(github.some((s) => s.label === 'Extract APIs')).toBe(true);
-  });
-
-  it('returns research/takeaways prompts on news and article pages', () => {
-    const wiki = getContextualStarters('https://en.wikipedia.org/wiki/Artificial_intelligence', 'Artificial intelligence - Wikipedia');
-    expect(wiki).toHaveLength(3);
-    expect(wiki.some((s) => s.label === 'Key Takeaways')).toBe(true);
-    expect(wiki.some((s) => s.label === 'Fact Check & Bias')).toBe(true);
-  });
-
-  it('returns tailored 3 starters for generic live web pages', () => {
-    const generic = getContextualStarters('https://randomservice.io/dashboard', 'Service Dashboard');
+  it('returns end-user friendly prompts on generic sites without developer jargon', () => {
+    const generic = getContextualStarters('https://randomservice.io/pricing', 'Awesome Service Pricing');
     expect(generic).toHaveLength(3);
-    expect(generic[0].prompt).toContain('Service Dashboard');
+    expect(generic[0].label).toBe('Explain This Page');
+    expect(generic[1].label).toBe('Find Key Info');
+    expect(generic[2].label).toBe('Help Me Navigate');
+
+    for (const starter of generic) {
+      expect(starter.prompt.toLowerCase()).not.toContain('markdown table');
+      expect(starter.prompt.toLowerCase()).not.toContain('inspect interactive');
+    }
+  });
+
+  it('generateSmartStartersWithLLM calls queryLLMRaw and parses JSON questions cleanly', async () => {
+    vi.spyOn(client, 'queryLLMRaw').mockResolvedValue(
+      JSON.stringify([
+        { label: 'Top Highlights', category: 'summarize', prompt: 'What are the main headlines?' },
+        { label: 'Check Prices', category: 'compare', prompt: 'Which plans give best value?' },
+        { label: 'Next Steps', category: 'automate', prompt: 'How do I sign up?' },
+      ]),
+    );
+
+    const results = await generateSmartStartersWithLLM(
+      { provider: 'omniroute', model: 'test' },
+      'https://example.com',
+      'Example Page',
+      'Snippet of page content',
+    );
+
+    expect(results).toHaveLength(3);
+    expect(results[0].label).toBe('Top Highlights');
+    expect(results[1].category).toBe('compare');
+    expect(results[2].prompt).toBe('How do I sign up?');
   });
 });

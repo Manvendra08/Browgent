@@ -27,7 +27,13 @@ import {
   stashProviderConfig,
   type ProviderConfigMap,
 } from './providerConfigs';
-import { getContextualStarters, BLANK_PAGE_STARTERS } from './starters';
+import {
+  getContextualStarters,
+  generateSmartStartersWithLLM,
+  BLANK_PAGE_STARTERS,
+  ContextualStarter,
+  isBlankOrInternalPage,
+} from './starters';
 
 const DEFAULT_CONFIG: LLMConfig = DEFAULT_LLM_CONFIG;
 
@@ -79,6 +85,8 @@ export const App: React.FC = () => {
   // Live active tab (for display) + the tab the agent is operating on (while running)
   const [activeTab, setActiveTab] = useState<ActiveTabInfo | null>(null);
   const [agentTab, setAgentTab] = useState<ActiveTabInfo | null>(null);
+  const [customStarters, setCustomStarters] = useState<Record<string, ContextualStarter[]>>({});
+  const [isGeneratingStarters, setIsGeneratingStarters] = useState<boolean>(false);
 
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -569,6 +577,63 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleGenerateSmartStarters = async () => {
+    if (isGeneratingStarters || status === 'running') return;
+    const currentTab = status === 'running' && agentTab ? agentTab : activeTab;
+    const targetUrl = currentTab?.url;
+    if (!targetUrl || isBlankOrInternalPage(targetUrl)) return;
+
+    setIsGeneratingStarters(true);
+    try {
+      let pageText = '';
+      const targetTabId = boundTabId ?? currentTab?.id;
+
+      if (typeof targetTabId === 'number' && typeof chrome !== 'undefined') {
+        if (chrome.scripting?.executeScript) {
+          try {
+            const results = await chrome.scripting.executeScript({
+              target: { tabId: targetTabId },
+              func: () => document.body ? document.body.innerText.slice(0, 3000) : '',
+            });
+            if (results && results[0]?.result) {
+              pageText = String(results[0].result);
+            }
+          } catch {
+            // Scripting fallback
+          }
+        }
+        if (!pageText && chrome.tabs?.sendMessage) {
+          try {
+            const res = await chrome.tabs.sendMessage(targetTabId, { type: 'GET_DOM_STATE' });
+            if (res?.success && res.data?.rawText) {
+              pageText = String(res.data.rawText).slice(0, 3000);
+            }
+          } catch {
+            // Ignore
+          }
+        }
+      }
+
+      const generated = await generateSmartStartersWithLLM(
+        config,
+        targetUrl,
+        currentTab?.title || '',
+        pageText || currentTab?.title || '',
+      );
+
+      if (generated && generated.length > 0) {
+        setCustomStarters((prev) => ({
+          ...prev,
+          [targetUrl]: generated,
+        }));
+      }
+    } catch (err) {
+      console.warn('[Browgent] Could not generate AI starters:', err);
+    } finally {
+      setIsGeneratingStarters(false);
+    }
+  };
+
   const handleRun = (overrideGoal?: unknown, overrideMode?: TurnMode) => {
     const rawGoal = typeof overrideGoal === 'string' ? overrideGoal : goal;
     const runMode = overrideMode !== undefined ? overrideMode : mode;
@@ -768,7 +833,16 @@ export const App: React.FC = () => {
       <ChatThread
         turns={currentThread?.turns || []}
         isRunning={status === 'running'}
-        suggestions={getContextualStarters(activeTab?.url, activeTab?.title)}
+        suggestions={
+          (activeTab?.url && customStarters[activeTab.url]) ||
+          getContextualStarters(activeTab?.url, activeTab?.title)
+        }
+        isGeneratingSuggestions={isGeneratingStarters}
+        onRefreshSuggestions={
+          activeTab?.url && !isBlankOrInternalPage(activeTab.url)
+            ? handleGenerateSmartStarters
+            : undefined
+        }
         onSuggestionClick={(prompt) => {
           setGoal(prompt);
         }}

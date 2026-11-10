@@ -7,19 +7,19 @@ export interface ContextualStarter {
 
 export const BLANK_PAGE_STARTERS: ContextualStarter[] = [
   {
-    label: 'Browse & Research',
+    label: 'Explore & Research',
     category: 'navigate',
     prompt: 'Search the web for top trending AI tools and compile their pricing and features',
   },
   {
-    label: 'Automate Form',
+    label: 'Help Me Fill Form',
     category: 'automate',
-    prompt: 'Open a site of my choice, fill out the registration or contact form, and review before submitting',
+    prompt: 'Open a site of my choice, fill out the form with sensible details, and let me review before submitting',
   },
   {
-    label: 'Extract Data',
+    label: 'Find & Compare',
     category: 'extract',
-    prompt: 'Navigate to an online store or directory and extract items into a clean markdown table',
+    prompt: 'Find top-rated products or services in a category of my choice and compare their prices and reviews',
   },
 ];
 
@@ -49,13 +49,53 @@ export function getContextualStarters(url?: string | null, title?: string | null
     hostname = parsed.hostname.toLowerCase();
     pathname = parsed.pathname.toLowerCase();
   } catch {
-    // If not a parseable URL, return generic fallback
+    // If not a parseable URL, fallback below
   }
 
   const pageTitle = (title || '').trim();
   const lowerTitle = pageTitle.toLowerCase();
+  const lowerCombined = `${hostname} ${pathname} ${lowerTitle}`;
 
-  // 1. E-Commerce & Retail (Amazon, eBay, Walmart, Flipkart, Shopify, product pages)
+  // 1. Finance, Markets, Stocks & Crypto (Moneycontrol, Bloomberg, Yahoo Finance, Mint, TradingView, CNBC, Investing)
+  if (
+    hostname.includes('moneycontrol') ||
+    hostname.includes('bloomberg') ||
+    hostname.includes('finance.yahoo') ||
+    hostname.includes('livemint') ||
+    hostname.includes('tradingview') ||
+    hostname.includes('cnbc') ||
+    hostname.includes('investing.com') ||
+    hostname.includes('reuters') ||
+    hostname.includes('nseindia') ||
+    hostname.includes('bseindia') ||
+    hostname.includes('marketwatch') ||
+    lowerCombined.includes('stock') ||
+    lowerCombined.includes('market') ||
+    lowerCombined.includes('share price') ||
+    lowerCombined.includes('crypto') ||
+    lowerCombined.includes('nifty') ||
+    lowerCombined.includes('sensex')
+  ) {
+    return [
+      {
+        label: 'Market Highlights',
+        category: 'summarize',
+        prompt: 'What are the top market headlines, key indices movements, and why is the market moving today?',
+      },
+      {
+        label: 'Top Stock Movers',
+        category: 'extract',
+        prompt: 'Which stocks or sectors are the biggest gainers and losers on this page, and what are their catalysts?',
+      },
+      {
+        label: 'Analyst Sentiment',
+        category: 'audit',
+        prompt: 'Summarize the expert consensus, target prices, and major risks mentioned for the highlighted companies',
+      },
+    ];
+  }
+
+  // 2. E-Commerce & Retail (Amazon, eBay, Walmart, Flipkart, Shopify, product pages)
   if (
     hostname.includes('amazon') ||
     hostname.includes('ebay') ||
@@ -63,33 +103,34 @@ export function getContextualStarters(url?: string | null, title?: string | null
     hostname.includes('flipkart') ||
     hostname.includes('target') ||
     hostname.includes('etsy') ||
+    hostname.includes('myntra') ||
     pathname.includes('/product') ||
     pathname.includes('/item') ||
     pathname.includes('/dp/') ||
-    lowerTitle.includes('shop') ||
-    lowerTitle.includes('store') ||
-    lowerTitle.includes('price')
+    lowerCombined.includes('shop') ||
+    lowerCombined.includes('store') ||
+    lowerCombined.includes('cart')
   ) {
     return [
       {
-        label: 'Compare Prices',
-        category: 'compare',
-        prompt: 'Extract all products, variants, and prices on this page into a comparison markdown table',
-      },
-      {
-        label: 'Review Intel',
+        label: 'Buyer Advice',
         category: 'audit',
-        prompt: 'Summarize user reviews, pros, cons, and common buyer complaints for this item',
+        prompt: 'Is this worth buying? Summarize real customer reviews, pros, cons, and common buyer complaints',
       },
       {
-        label: 'Find Deals',
+        label: 'Compare Options',
+        category: 'compare',
+        prompt: 'Compare the different models, sizes, or variants on this page by price, features, and value',
+      },
+      {
+        label: 'Deals & Discounts',
         category: 'extract',
-        prompt: 'Check for available coupons, discount codes, or cheaper alternate sellers on this page',
+        prompt: 'Find any active coupons, bank discount offers, or cheaper alternate sellers for this item',
       },
     ];
   }
 
-  // 2. Travel & Hospitality (Expedia, Booking, Airbnb, Agoda, TripAdvisor, Skyscanner)
+  // 3. Travel & Hospitality (Expedia, Booking, Airbnb, Agoda, TripAdvisor, Skyscanner, MakeMyTrip)
   if (
     hostname.includes('expedia') ||
     hostname.includes('booking') ||
@@ -97,31 +138,33 @@ export function getContextualStarters(url?: string | null, title?: string | null
     hostname.includes('tripadvisor') ||
     hostname.includes('agoda') ||
     hostname.includes('kayak') ||
+    hostname.includes('makemytrip') ||
     hostname.includes('hotels') ||
-    lowerTitle.includes('hotel') ||
-    lowerTitle.includes('flight') ||
-    lowerTitle.includes('stay')
+    lowerCombined.includes('hotel') ||
+    lowerCombined.includes('flight') ||
+    lowerCombined.includes('stay') ||
+    lowerCombined.includes('resort')
   ) {
     return [
       {
-        label: 'Find Best Price',
-        category: 'extract',
-        prompt: 'Extract top 5 options with name, rating, total price including taxes, and key amenities',
-      },
-      {
-        label: 'Compare Stays',
+        label: 'Best Value Stays',
         category: 'compare',
-        prompt: 'Compare the top 3 highest-rated listings by location, cancellation policy, and total cost',
+        prompt: 'Compare the top 3 highest-rated options on this page by total price (with taxes), location, and amenities',
       },
       {
-        label: 'Audit Reviews',
+        label: 'Check Hidden Catches',
         category: 'audit',
-        prompt: 'Scan recent traveler reviews for complaints about cleanliness, wifi speed, and hidden fees',
+        prompt: 'Scan guest reviews for complaints about cleanliness, noise, wifi reliability, or hidden fees',
+      },
+      {
+        label: 'Booking Assistance',
+        category: 'automate',
+        prompt: 'Select the best available room or flight option and proceed to the review screen before payment',
       },
     ];
   }
 
-  // 3. Social & Professional Networks (LinkedIn, Twitter / X, Reddit, GitHub)
+  // 4. Social & Professional Networks (LinkedIn, Twitter / X, Reddit)
   if (
     hostname.includes('linkedin') ||
     hostname.includes('twitter') ||
@@ -130,24 +173,24 @@ export function getContextualStarters(url?: string | null, title?: string | null
   ) {
     return [
       {
-        label: 'Profile Intel',
+        label: 'Executive Bio',
         category: 'extract',
-        prompt: 'Extract key professional background, current role, tenure, and recent activity into a dossier',
+        prompt: 'Give me a quick 3-bullet executive summary of this person’s background, career highlights, and current focus',
       },
       {
-        label: 'Draft Response',
+        label: 'Draft Friendly Reply',
         category: 'automate',
-        prompt: 'Draft an authentic, high-context reply or connection note tailored to this post or profile',
+        prompt: 'Draft an authentic, engaging response or connection request tailored to this conversation',
       },
       {
-        label: 'Summarize Thread',
+        label: 'Key Takeaways',
         category: 'summarize',
-        prompt: 'Summarize the core debate and top insightful comments in this thread in 5 concise bullets',
+        prompt: 'What are the main viewpoints, debate arguments, and top insightful takeaways in this discussion?',
       },
     ];
   }
 
-  // 4. Developer & Technical (GitHub, GitLab, StackOverflow, Documentation)
+  // 5. Developer & Technical (GitHub, GitLab, StackOverflow, Documentation)
   if (
     hostname.includes('github') ||
     hostname.includes('gitlab') ||
@@ -159,71 +202,129 @@ export function getContextualStarters(url?: string | null, title?: string | null
   ) {
     return [
       {
-        label: 'Explain Code',
+        label: 'Plain English Summary',
         category: 'summarize',
-        prompt: 'Explain the architecture and key functions of this codebase or document in plain English',
+        prompt: 'Explain what this project or tool does and how it works in plain, simple English',
       },
       {
-        label: 'Extract APIs',
+        label: 'How Do I Use This?',
         category: 'extract',
-        prompt: 'Extract all API endpoints, parameters, and return types into a structured reference table',
+        prompt: 'What are the quickest setup steps, requirements, and basic usage examples for this library?',
       },
       {
-        label: 'Find Issues',
+        label: 'Troubleshoot / Gotchas',
         category: 'audit',
-        prompt: 'Analyze this page for open issues, breaking changes, or deprecation warnings',
+        prompt: 'Are there any known bugs, limitations, or common pitfalls I should watch out for on this page?',
       },
     ];
   }
 
-  // 5. News, Articles, Blogs, & Media (Substack, Medium, NYT, TechCrunch, Wikipedia, Docs)
+  // 6. News, Articles, Blogs, Research & Education (Substack, Medium, NYT, Wikipedia, etc.)
   if (
     hostname.includes('wikipedia') ||
     hostname.includes('medium') ||
     hostname.includes('substack') ||
     hostname.includes('news') ||
     hostname.includes('techcrunch') ||
-    hostname.includes('bloomberg') ||
+    hostname.includes('bbc') ||
+    hostname.includes('cnn') ||
     pathname.includes('/blog') ||
     pathname.includes('/article') ||
     pathname.includes('/news')
   ) {
     return [
       {
-        label: 'Key Takeaways',
+        label: 'Quick Breakdown',
         category: 'summarize',
-        prompt: 'Summarize the core thesis and key supporting evidence of this article in 5 executive bullets',
+        prompt: 'What is this article about? Give me the 3 most important takeaways in under 30 seconds',
       },
       {
-        label: 'Fact Check & Bias',
+        label: 'Fact Check & Sources',
         category: 'audit',
-        prompt: 'Identify the main claims made on this page, cited sources, and any unverified assumptions',
+        prompt: 'What are the key claims made here, and what evidence or sources back them up?',
       },
       {
-        label: 'Action Items',
+        label: 'Key Takeaways',
         category: 'extract',
-        prompt: 'Extract actionable insights, recommendations, or referenced tools mentioned in this piece',
+        prompt: 'Extract the most interesting facts, stats, quotes, or practical lessons from this piece',
       },
     ];
   }
 
-  // 6. Generic Live Web Page (Default for any standard active website)
-  const shortTitle = pageTitle ? `"${pageTitle.slice(0, 30)}..."` : 'this page';
+  // 7. Generic Live Web Page (Default for any standard active website)
+  const shortTitle = pageTitle ? `"${pageTitle.slice(0, 32)}..."` : 'this page';
   return [
     {
-      label: 'Summarize Page',
+      label: 'Explain This Page',
       category: 'summarize',
-      prompt: `Summarize the essential content and purpose of ${shortTitle} in 5 structured bullets`,
+      prompt: `What is ${shortTitle} offering or explaining? Give me a concise summary`,
     },
     {
-      label: 'Extract Data',
+      label: 'Find Key Info',
       category: 'extract',
-      prompt: 'Extract all key facts, tables, lists, or contact info on this page into a markdown table',
+      prompt: 'What are the main options, pricing, contact details, or important facts on this page?',
     },
     {
-      label: 'Automate & Review',
+      label: 'Help Me Navigate',
       category: 'automate',
-      prompt: 'Inspect interactive forms or elements on this page, enter required inputs, and review before submit',
+      prompt: 'Help me find where to go next or guide me through the main action on this site',
     },
   ];
+}
+
+import { LLMConfig } from '../types';
+import { queryLLMRaw } from '../background/llm/client';
+
+export async function generateSmartStartersWithLLM(
+  config: LLMConfig,
+  pageUrl: string,
+  pageTitle: string,
+  pageSnippet: string,
+  signal?: AbortSignal,
+): Promise<ContextualStarter[]> {
+  const systemPrompt = `You are an AI assistant in a browser sidebar helping everyday end-users (non-developers).
+Given a webpage's title, URL, and a text snippet, generate exactly 3 short, curiosity-driven questions or actions the user would want to ask about this specific page.
+
+RULES:
+1. Speak in plain human language from the USER's perspective (e.g. "What are the main...", "How do I...", "Is this...").
+2. NEVER use developer jargon like "DOM", "markdown table", "regex", "form elements", "inspect", "JSON", or "audit".
+3. Return STRICTLY a JSON array of 3 objects with keys: "label" (2-3 words), "category" (one of: "summarize", "extract", "automate", "audit", "compare"), and "prompt" (the full question/instruction).
+4. No markdown fences, no explanatory text, just the raw JSON array.`;
+
+  const userContent = `Page Title: ${pageTitle || 'Untitled'}
+Page URL: ${pageUrl}
+Page Content Preview:
+${pageSnippet.slice(0, 1500)}`;
+
+  const responseText = await queryLLMRaw(
+    config,
+    [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userContent },
+    ],
+    signal,
+  );
+
+  let cleaned = responseText.trim();
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  }
+
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed) && parsed.length >= 3) {
+      return parsed.slice(0, 3).map((item) => ({
+        label: String(item.label || 'Question').slice(0, 24),
+        category: (['summarize', 'extract', 'automate', 'audit', 'compare'].includes(item.category)
+          ? item.category
+          : 'summarize') as ContextualStarter['category'],
+        prompt: String(item.prompt || '').trim(),
+      }));
+    }
+  } catch (err) {
+    console.warn('[Browgent Starters] Failed to parse LLM starters response:', err, responseText);
+  }
+
+  // Fallback to rules if JSON parsing fails
+  return getContextualStarters(pageUrl, pageTitle);
 }

@@ -28,6 +28,8 @@ interface ChatThreadProps {
   turns: Turn[];
   isRunning: boolean;
   suggestions?: Array<string | ContextualStarter>;
+  isGeneratingSuggestions?: boolean;
+  onRefreshSuggestions?: () => void;
   onSuggestionClick?: (prompt: string) => void;
   onEditPrompt?: (prompt: string) => void;
   onRetryPrompt?: (prompt: string, mode: Turn['mode']) => void;
@@ -139,6 +141,8 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
   turns,
   isRunning,
   suggestions,
+  isGeneratingSuggestions = false,
+  onRefreshSuggestions,
   onSuggestionClick,
   onEditPrompt,
   onRetryPrompt,
@@ -215,8 +219,32 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
           <p className="text-[11px] mt-0.5 max-w-[240px] text-slate-400">
             Enter a prompt below or pick a starter:
           </p>
+          <div className="flex items-center justify-between w-full max-w-[340px] mt-3.5 mb-1.5 px-0.5">
+            <span className="text-[11px] text-slate-400 font-medium">Suggested for this page:</span>
+            {onRefreshSuggestions && (
+              <button
+                type="button"
+                onClick={onRefreshSuggestions}
+                disabled={isGeneratingSuggestions || isRunning}
+                className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition cursor-pointer disabled:opacity-50"
+                title="Use AI to generate tailored questions from this page's content"
+              >
+                {isGeneratingSuggestions ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
+                    <span>Analyzing page...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3 h-3 text-[#4285F4]" />
+                    <span>AI Suggestions</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
           {suggestions && suggestions.length > 0 && (
-            <div className="mt-3.5 w-full max-w-[340px] grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+            <div className="w-full max-w-[340px] grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
               {suggestions.map((item, idx) => {
                 const promptText = typeof item === 'string' ? item : item.prompt;
                 const cat = getStarterMeta(item);
