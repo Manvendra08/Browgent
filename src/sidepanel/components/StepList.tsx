@@ -105,7 +105,11 @@ export const StepList: React.FC<StepListProps> = ({ items }) => {
         return (
           <div
             key={item.id}
-            className="bg-slate-800/70 border border-slate-700/60 rounded-lg p-2.5 text-xs shadow-sm hover:border-slate-600/80 transition"
+            className={`border rounded-lg p-2.5 text-xs shadow-sm transition ${
+              item.status === 'running'
+                ? 'border-blue-500/60 shimmer-running shadow-blue-500/10'
+                : 'bg-slate-800/70 border-slate-700/60 hover:border-slate-600/80'
+            }`}
           >
             {/* Step Header */}
             <div className="flex items-center justify-between mb-1.5">

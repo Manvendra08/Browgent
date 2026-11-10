@@ -301,3 +301,78 @@ html.theme-light .md th {
 html.theme-light .md blockquote {
   color: #64748b;
 }
+
+
+/* ===================== Animated Neural Work Visuals ===================== */
+
+@keyframes googleLaserFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.google-laser-active {
+  background: linear-gradient(
+    90deg,
+    #4285f4 0%,
+    #ea4335 25%,
+    #fbbc05 50%,
+    #34a853 75%,
+    #4285f4 100%
+  );
+  background-size: 300% 300%;
+  animation: googleLaserFlow 2s linear infinite;
+  box-shadow: 0 0 10px rgba(66, 133, 244, 0.6), 0 0 20px rgba(234, 67, 53, 0.4);
+}
+
+@keyframes neuralPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.96);
+  }
+}
+
+.neural-pulse {
+  animation: neuralPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes shimmerCard {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer-running {
+  background: linear-gradient(
+    90deg,
+    rgba(30, 41, 59, 0.5) 0%,
+    rgba(66, 133, 244, 0.18) 50%,
+    rgba(30, 41, 59, 0.5) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmerCard 2.2s infinite;
+}
+
+html.theme-light .shimmer-running {
+  background: linear-gradient(
+    90deg,
+    rgba(241, 245, 249, 0.8) 0%,
+    rgba(66, 133, 244, 0.15) 50%,
+    rgba(241, 245, 249, 0.8) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmerCard 2.2s infinite;
+}

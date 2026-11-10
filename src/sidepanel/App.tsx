@@ -755,8 +755,14 @@ export const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100 antialiased font-sans overflow-hidden">
-      {/* Google Multi-Color Brand Header Accent */}
-      <div className="h-[2.5px] w-full bg-gradient-to-r from-[#4285F4] via-[#EA4335] via-[#FBBC05] to-[#34A853]" />
+      {/* Google Multi-Color Brand Header Accent with Dynamic Laser Scan */}
+      <div
+        className={`w-full transition-all duration-300 ${
+          status === 'running'
+            ? 'h-[3.5px] google-laser-active'
+            : 'h-[2.5px] bg-gradient-to-r from-[#4285F4] via-[#EA4335] via-[#FBBC05] to-[#34A853]'
+        }`}
+      />
 
       {/* Top Header */}
       <header className="flex items-center justify-between px-3.5 py-2 min-h-[40px] bg-slate-950/80 border-b border-slate-800">

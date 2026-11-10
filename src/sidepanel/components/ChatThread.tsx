@@ -18,6 +18,8 @@ import {
   Pencil,
   RotateCcw,
   Compass,
+  Download,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { Turn } from '../threads';
 import { StepList } from './StepList';
@@ -200,6 +202,40 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
       setTimeout(() => setCopiedPromptId(null), 2000);
     } catch {
       // Fallback
+    }
+  };
+
+  const downloadTextFile = (filename: string, content: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportMarkdown = (turnId: string, text: string) => {
+    downloadTextFile(`browgent-summary-${turnId.slice(0, 8)}.md`, text, 'text/markdown');
+  };
+
+  const handleExportCSV = (turnId: string, text: string) => {
+    const tableLines = text.split('\n').filter((l) => l.trim().startsWith('|') && l.trim().endsWith('|'));
+    if (tableLines.length >= 2) {
+      const csvRows = tableLines
+        .filter((l) => !/^\|[\s\-:|]+\|$/.test(l.trim()))
+        .map((l) =>
+          l
+            .slice(1, -1)
+            .split('|')
+            .map((cell) => `"${cell.trim().replace(/"/g, '""')}"`)
+            .join(','),
+        );
+      downloadTextFile(`browgent-data-${turnId.slice(0, 8)}.csv`, csvRows.join('\n'), 'text/csv');
+    } else {
+      handleExportMarkdown(turnId, text);
     }
   };
 
@@ -403,20 +439,44 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                     <Bot className="w-3.5 h-3.5 text-[#4285F4]" />
                     <span>Browgent</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(turn.id, turn.result!)}
-                    title="Copy response"
-                    aria-label="Copy response"
-                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-slate-400 hover:text-slate-200 bg-slate-900/60 hover:bg-slate-900 border border-slate-700/60 transition cursor-pointer"
-                  >
-                    {copiedTurnId === turn.id ? (
-                      <CheckCheck className="w-3 h-3 text-emerald-400" />
-                    ) : (
-                      <Copy className="w-3 h-3 text-slate-400" />
+                  <div className="flex items-center gap-1">
+                    {turn.result.includes('|') && (
+                      <button
+                        type="button"
+                        onClick={() => handleExportCSV(turn.id, turn.result!)}
+                        title="Export table as CSV"
+                        aria-label="Export table as CSV"
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-emerald-400 hover:text-emerald-300 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-800/60 transition cursor-pointer"
+                      >
+                        <FileSpreadsheet className="w-3 h-3 text-emerald-400" />
+                        <span>CSV</span>
+                      </button>
                     )}
-                    <span>{copiedTurnId === turn.id ? 'Copied' : 'Copy'}</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportMarkdown(turn.id, turn.result!)}
+                      title="Download as Markdown"
+                      aria-label="Download as Markdown"
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-slate-400 hover:text-slate-200 bg-slate-900/60 hover:bg-slate-900 border border-slate-700/60 transition cursor-pointer"
+                    >
+                      <Download className="w-3 h-3 text-slate-400" />
+                      <span>MD</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(turn.id, turn.result!)}
+                      title="Copy response"
+                      aria-label="Copy response"
+                      className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-slate-400 hover:text-slate-200 bg-slate-900/60 hover:bg-slate-900 border border-slate-700/60 transition cursor-pointer"
+                    >
+                      {copiedTurnId === turn.id ? (
+                        <CheckCheck className="w-3 h-3 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-slate-400" />
+                      )}
+                      <span>{copiedTurnId === turn.id ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
                 </div>
                 <Markdown content={turn.result} className="text-slate-200 text-[11px] leading-relaxed" />
               </div>

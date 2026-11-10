@@ -1,5 +1,5 @@
-import React from 'react';
-import { Play, Square, Sparkles, X, MessageSquare, Bot, Cpu, Plus, Camera } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Play, Square, Sparkles, X, MessageSquare, Bot, Cpu, Plus, Camera, Mic, MicOff } from 'lucide-react';
 import { TurnMode } from '../threads';
 
 interface GoalInputProps {
@@ -33,6 +33,76 @@ export const GoalInput: React.FC<GoalInputProps> = ({
   tabComponent,
   filesComponent,
 }) => {
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, []);
+
+  const toggleVoiceInput = () => {
+    if (isRunning) return;
+
+    if (isListening) {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {
+          // ignore
+        }
+      }
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert('Speech recognition is not supported in this browser version.');
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = navigator.language || 'en-US';
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0]?.[0]?.transcript;
+        if (transcript) {
+          setGoal(goal ? `${goal.trim()} ${transcript.trim()}` : transcript.trim());
+        }
+      };
+
+      recognition.onerror = () => {
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch {
+      setIsListening(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter') {
       if (e.shiftKey) {
@@ -152,6 +222,22 @@ export const GoalInput: React.FC<GoalInputProps> = ({
                 <Camera className="w-3.5 h-3.5" />
               </button>
             )}
+
+            {/* Voice input button */}
+            <button
+              type="button"
+              onClick={toggleVoiceInput}
+              disabled={isRunning}
+              title={isListening ? 'Listening... click to stop' : 'Voice input (Speech to text)'}
+              aria-label={isListening ? 'Stop listening' : 'Voice input'}
+              className={`p-1 rounded-md transition cursor-pointer flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed border ${
+                isListening
+                  ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 border-slate-700/60'
+              }`}
+            >
+              {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+            </button>
 
             {/* Model Pill */}
             {modelName && (
