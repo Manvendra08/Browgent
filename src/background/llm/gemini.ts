@@ -73,11 +73,23 @@ export async function queryGemini(config: LLMConfig, messages: LLMMessage[], sig
 
   const data = await response.json();
   const candidate = data.candidates && data.candidates[0];
-  const part = candidate && candidate.content && candidate.content.parts && candidate.content.parts[0];
+  const parts = candidate?.content?.parts;
 
-  if (!part || !part.text) {
+  let text = '';
+  if (Array.isArray(parts)) {
+    // Prefer non-thought text parts (Gemini 2.0/2.5 Thinking models)
+    const mainParts = parts.filter((p: { text?: string; thought?: boolean }) => p && p.text && !p.thought);
+    if (mainParts.length > 0) {
+      text = mainParts.map((p: { text?: string }) => p.text).join('\n').trim();
+    } else {
+      // Fallback to any text part
+      text = parts.map((p: { text?: string }) => p?.text || '').join('\n').trim();
+    }
+  }
+
+  if (!text) {
     throw new Error('Gemini returned an empty completion response');
   }
 
-  return part.text;
+  return text;
 }

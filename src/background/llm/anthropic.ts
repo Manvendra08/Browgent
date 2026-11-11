@@ -106,9 +106,19 @@ export async function queryAnthropic(config: LLMConfig, messages: LLMMessage[], 
 
   const data = await response.json();
   const textContent = data.content && data.content.find((c: { type: string; text?: string }) => c.type === 'text');
-  if (!textContent || !textContent.text) {
+  let resultText = textContent?.text;
+
+  // Fallback to thinking block if text block was omitted
+  if (!resultText && Array.isArray(data.content)) {
+    const thinkingBlock = data.content.find((c: { type: string; thinking?: string }) => c.type === 'thinking');
+    if (thinkingBlock && thinkingBlock.thinking) {
+      resultText = thinkingBlock.thinking;
+    }
+  }
+
+  if (!resultText) {
     throw new Error('Anthropic returned an empty completion response');
   }
 
-  return textContent.text;
+  return resultText;
 }

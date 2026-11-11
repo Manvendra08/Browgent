@@ -5,6 +5,7 @@ import {
   clearKnownTextOnlyModels,
   isModelTextOnly,
   isImageUnsupportedError,
+  extractChoiceContent,
 } from '../../src/background/llm/openai';
 
 beforeEach(() => {
@@ -244,5 +245,92 @@ describe('OpenAI-compatible provider', () => {
     ]);
     expect(secondResult).toBe('{"action":"finish","summary":"Done"}');
     expect(callCount).toBe(3);
+  });
+
+  it('extractChoiceContent falls back to reasoning or reasoning_content when content is null', () => {
+    // Null content with reasoning (Nemotron format)
+    expect(
+      extractChoiceContent({
+        message: {
+          content: null,
+          reasoning: '{"thought":"Thinking done","action":{"action":"click","elementId":10}}',
+        },
+      }),
+    ).toBe('{"thought":"Thinking done","action":{"action":"click","elementId":10}}');
+
+    // Null content with reasoning_content (DeepSeek-R1 format)
+    expect(
+      extractChoiceContent({
+        message: {
+          content: null,
+          reasoning_content: '{"thought":"DeepSeek thinking","action":{"action":"wait","seconds":2}}',
+        },
+      }),
+    ).toBe('{"thought":"DeepSeek thinking","action":{"action":"wait","seconds":2}}');
+
+    // Null content with thought
+    expect(
+      extractChoiceContent({
+        message: {
+          content: null,
+          thought: '{"action":"scroll","direction":"down"}',
+        },
+      }),
+    ).toBe('{"action":"scroll","direction":"down"}');
+
+    // Array content parts
+    expect(
+      extractChoiceContent({
+        message: {
+          content: [{ type: 'text', text: 'part 1 ' }, { type: 'text', text: 'part 2' }],
+        },
+      }),
+    ).toBe('part 1 part 2');
+  });
+
+  it('retries in text-only DOM mode on silent vision failure (HTTP 200 with empty content)', async () => {
+    let callCount = 0;
+    const fetchMock = vi.fn().mockImplementation((_url, init: RequestInit) => {
+      callCount++;
+      const body = JSON.parse(init.body as string);
+      if (callCount === 1) {
+        // First call includes images; model returns 200 OK but content is null (e.g. Kilo Nemotron silent drop)
+        expect(Array.isArray(body.messages[0].content)).toBe(true);
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  finish_reason: 'stop',
+                  message: { role: 'assistant', content: null },
+                },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      if (callCount === 2) {
+        // Second call retries without images as text-only
+        expect(typeof body.messages[0].content).toBe('string');
+        return Promise.resolve(okResponse('{"action":"click","elementId":42}'));
+      }
+      return Promise.resolve(okResponse('{"action":"finish"}'));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const config = {
+      provider: 'openai-compat' as const,
+      model: 'kilo-auto/free',
+      baseUrl: 'http://localhost:20128/v1',
+    };
+
+    const result = await queryOpenAI(config, [
+      { role: 'user', content: 'click button', images: ['data:image/png;base64,mockimg'] },
+    ]);
+
+    expect(result).toBe('{"action":"click","elementId":42}');
+    expect(callCount).toBe(2);
+    expect(isModelTextOnly(config.provider, config.model)).toBe(true);
   });
 });

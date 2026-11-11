@@ -1,6 +1,6 @@
 import { LLMConfig, LLMMessage } from './types';
 import { fetchLLM, redactSecrets, truncateErrorBody } from './net';
-import { isImageUnsupportedError, isModelTextOnly, markModelAsTextOnly } from './openai';
+import { isImageUnsupportedError, isModelTextOnly, markModelAsTextOnly, extractChoiceContent } from './openai';
 
 export const OMNIROUTE_DEFAULT_BASE_URL = 'http://localhost:20128/v1/chat/completions';
 
@@ -112,19 +112,33 @@ export async function queryOmniRoute(config: LLMConfig, messages: LLMMessage[], 
 
   const data = await response.json();
   const choice = data.choices && data.choices[0];
-  if (!choice || !choice.message) {
-    throw new Error('OmniRoute returned an empty or invalid completion format');
-  }
+  let content = extractChoiceContent(choice);
 
-  let content = choice.message.content;
-  if (!content && Array.isArray(choice.message.tool_calls) && choice.message.tool_calls.length > 0) {
-    const firstCall = choice.message.tool_calls[0];
-    const funcArgs = firstCall.function?.arguments || '{}';
-    content = `\`\`\`json\n{\n  "thought": "Invoking ${firstCall.function?.name || 'tool'}",\n  "action": ${funcArgs}\n}\n\`\`\``;
+  if (!content && hasImages) {
+    console.warn(`[Browgent LLM] OmniRoute model "${resolvedModel}" returned empty completion with vision input. Retrying in text-only DOM mode...`);
+    markModelAsTextOnly('omniroute', resolvedModel);
+
+    formattedMessages = formatMessages(messages, false);
+    payload.messages = formattedMessages;
+
+    response = await fetchLLM(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    }, 'OmniRoute', signal);
+
+    if (response.ok) {
+      const retryData = await response.json();
+      const retryChoice = retryData.choices && retryData.choices[0];
+      content = extractChoiceContent(retryChoice);
+    }
   }
 
   if (!content) {
-    throw new Error('OmniRoute returned an empty or invalid completion format');
+    const finishReason = choice?.finish_reason ? ` (finish_reason: "${choice.finish_reason}")` : '';
+    throw new Error(
+      `OmniRoute returned an empty completion for model "${resolvedModel}"${finishReason}. Upstream model generated 0 content tokens or exhausted budget in reasoning.`
+    );
   }
 
   return content;

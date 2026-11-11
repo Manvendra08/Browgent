@@ -49,6 +49,59 @@ export function isModelTextOnly(provider?: string, model?: string): boolean {
   return KNOWN_TEXT_ONLY_MODELS.has(`${provider || 'openai'}:${model.trim().toLowerCase()}`);
 }
 
+export function extractChoiceContent(choice?: {
+  finish_reason?: string | null;
+  message?: {
+    content?: string | null | Array<{ type?: string; text?: string }>;
+    reasoning?: string | null;
+    reasoning_content?: string | null;
+    thought?: string | null;
+    tool_calls?: Array<{
+      function?: {
+        name?: string;
+        arguments?: string;
+      };
+    }>;
+  };
+}): string | null {
+  if (!choice || !choice.message) return null;
+  const msg = choice.message;
+
+  // 1. Direct string content
+  if (typeof msg.content === 'string' && msg.content.trim()) {
+    return msg.content.trim();
+  }
+
+  // 2. Array of content parts (e.g. [{ type: 'text', text: '...' }])
+  if (Array.isArray(msg.content)) {
+    const textPart = msg.content
+      .map((part) => (typeof part === 'string' ? part : part?.text || ''))
+      .join('')
+      .trim();
+    if (textPart) return textPart;
+  }
+
+  // 3. Tool calls / function calling fallback
+  if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+    const firstCall = msg.tool_calls[0];
+    const funcArgs = firstCall.function?.arguments || '{}';
+    return `\`\`\`json\n{\n  "thought": "Invoking ${firstCall.function?.name || 'tool'}",\n  "action": ${funcArgs}\n}\n\`\`\``;
+  }
+
+  // 4. Reasoning / Thinking models fallback (DeepSeek-R1, Qwen-Thinking, Nemotron)
+  if (typeof msg.reasoning_content === 'string' && msg.reasoning_content.trim()) {
+    return msg.reasoning_content.trim();
+  }
+  if (typeof msg.reasoning === 'string' && msg.reasoning.trim()) {
+    return msg.reasoning.trim();
+  }
+  if (typeof msg.thought === 'string' && msg.thought.trim()) {
+    return msg.thought.trim();
+  }
+
+  return null;
+}
+
 export function clearKnownTextOnlyModels(): void {
   KNOWN_TEXT_ONLY_MODELS.clear();
 }
@@ -125,19 +178,36 @@ export async function queryOpenAI(config: LLMConfig, messages: LLMMessage[], sig
 
   const data = await response.json();
   const choice = data.choices && data.choices[0];
-  if (!choice || !choice.message) {
-    throw new Error('OpenAI returned an empty completion');
-  }
+  let content = extractChoiceContent(choice);
 
-  let content = choice.message.content;
-  if (!content && Array.isArray(choice.message.tool_calls) && choice.message.tool_calls.length > 0) {
-    const firstCall = choice.message.tool_calls[0];
-    const funcArgs = firstCall.function?.arguments || '{}';
-    content = `\`\`\`json\n{\n  "thought": "Invoking ${firstCall.function?.name || 'tool'}",\n  "action": ${funcArgs}\n}\n\`\`\``;
+  // If response was 200 OK but content is empty, AND images were included:
+  // Many free or weaker models (e.g., kilo-auto/free, Nemotron, local endpoints) accept images with 200 OK
+  // but silently fail to produce any output tokens. Retry once in text-only DOM mode.
+  if (!content && hasImages) {
+    console.warn(`[Browgent LLM] Model "${model}" returned empty completion with vision input. Retrying in text-only DOM mode...`);
+    markModelAsTextOnly(config.provider, model);
+
+    formattedMessages = formatMessages(messages, false);
+    payload.messages = formattedMessages;
+
+    response = await fetchLLM(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    }, 'OpenAI-compatible endpoint', signal);
+
+    if (response.ok) {
+      const retryData = await response.json();
+      const retryChoice = retryData.choices && retryData.choices[0];
+      content = extractChoiceContent(retryChoice);
+    }
   }
 
   if (!content) {
-    throw new Error('OpenAI returned an empty completion');
+    const finishReason = choice?.finish_reason ? ` (finish_reason: "${choice.finish_reason}")` : '';
+    throw new Error(
+      `OpenAI returned an empty completion for model "${model}"${finishReason}. Upstream model generated 0 content tokens or exhausted budget in reasoning.`
+    );
   }
 
   return content;
