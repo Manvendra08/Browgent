@@ -189,4 +189,82 @@ describe('AgentController loop detector', () => {
     expect(warning).toBeDefined();
     expect((warning?.data as { error: string }).error).toContain('Enter key was not accepted');
   });
+
+  it('detects runaway consecutive wait loops, issues warning on 3rd wait, and allows agent to finish', async () => {
+    mockedQueryLLM
+      .mockResolvedValueOnce({
+        thought: 'Wait 1',
+        action: { action: 'wait', seconds: 1 },
+      })
+      .mockResolvedValueOnce({
+        thought: 'Wait 2',
+        action: { action: 'wait', seconds: 1 },
+      })
+      .mockResolvedValueOnce({
+        thought: 'Wait 3 (triggers warning)',
+        action: { action: 'wait', seconds: 1 },
+      })
+      .mockResolvedValueOnce({
+        thought: 'Heeded warning, finishing now',
+        action: { action: 'finish', summary: 'Done waiting' },
+      });
+
+    mockedQueryLLMRaw.mockResolvedValue(
+      '```json\n{"confirmed": true, "evidence": "Output ready"}\n```',
+    );
+
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 6,
+    });
+
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const result = await controller.run(1, 'wait loop test', (event) => events.push(event));
+
+    expect(result.success).toBe(true);
+    expect(result.summary).toBe('Done waiting');
+
+    const waitWarning = events.find(
+      (e) =>
+        e.type === 'action_result' &&
+        (e.data as { error?: string }).error?.includes('Wait loop warning'),
+    );
+    expect(waitWarning).toBeDefined();
+  });
+
+  it('aborts runaway wait loop when agent executes 5 consecutive waits', async () => {
+    mockedQueryLLM
+      .mockResolvedValueOnce({
+        thought: 'Wait 1',
+        action: { action: 'wait', seconds: 1 },
+      })
+      .mockResolvedValueOnce({
+        thought: 'Wait 2',
+        action: { action: 'wait', seconds: 1 },
+      })
+      .mockResolvedValueOnce({
+        thought: 'Wait 3 (warning issued)',
+        action: { action: 'wait', seconds: 1 },
+      })
+      .mockResolvedValueOnce({
+        thought: 'Wait 4 (grace)',
+        action: { action: 'wait', seconds: 1 },
+      })
+      .mockResolvedValueOnce({
+        thought: 'Wait 5 (hard abort)',
+        action: { action: 'wait', seconds: 1 },
+      });
+
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 10,
+    });
+
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const result = await controller.run(1, 'runaway wait abort test', (event) => events.push(event));
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Agent repeated 'wait' 5 times consecutively");
+    expect(controller.getStatus()).toBe('failed');
+  });
 });

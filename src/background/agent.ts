@@ -10,6 +10,7 @@ import { Skill } from './skills/types';
 import { AttachedFile, formatAttachedFilesForPrompt } from './files/parser';
 import { detachDebugger, enableDialogHandling, DialogDisposer, captureScreenshotCdp } from './cdp';
 import { isRestrictedUrl, RESTRICTED_URL_HINT } from './restricted';
+import { defaultAuditorReflectionGate, IAuditorReflectionGate } from './auditor';
 
 export type AgentStatus = 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'stopped';
 
@@ -211,6 +212,7 @@ export interface AgentOptions {
   mcpEndpoint?: string;
   showOverlay?: boolean;
   conversation?: ConversationItem[];
+  auditorGate?: IAuditorReflectionGate;
 }
 
 export function formatMcpResult(result: unknown, maxChars: number = 1200): string {
@@ -252,6 +254,7 @@ export class AgentController {
   private dialogDisposers: Map<number, DialogDisposer> = new Map();
   private readonly pageNonce: string = Math.random().toString(36).slice(2, 12);
   private runAbortController: AbortController | null = null;
+  public readonly auditorGate: IAuditorReflectionGate;
 
   constructor(options: AgentOptions) {
     this.llmConfig = options.llmConfig;
@@ -261,6 +264,7 @@ export class AgentController {
     this.conversation = options.conversation ?? [];
     this.showOverlay = options.showOverlay ?? false;
     this.toolRegistry = new ToolRegistry();
+    this.auditorGate = options.auditorGate ?? defaultAuditorReflectionGate;
 
     if (options.mcpEndpoint && options.mcpEndpoint.trim() !== '') {
       this.mcpClient = new McpClient(options.mcpEndpoint);
@@ -286,9 +290,20 @@ export class AgentController {
   }
 
   public checkLoop(action: AgentAction): boolean {
-    // wait and terminal actions (finish/fail) are not operational action loops
-    // finish has its own verification gate (MAX_FINISH_REJECTIONS)
-    if (action.action === 'wait' || action.action === 'finish' || action.action === 'fail') {
+    // finish and fail have their own verification gates
+    if (action.action === 'finish' || action.action === 'fail') {
+      return false;
+    }
+
+    // Detect runaway consecutive wait loops
+    if (action.action === 'wait') {
+      const serialized = JSON.stringify(action);
+      const waitHistory = this.actionHistory.slice(-2);
+      this.actionHistory.push(serialized);
+      // Trigger loop detection on 3rd consecutive wait (or subsequent consecutive waits)
+      if (waitHistory.length === 2 && waitHistory.every((entry) => entry.includes('"action":"wait"'))) {
+        return true;
+      }
       return false;
     }
 
@@ -304,8 +319,10 @@ export class AgentController {
       return false;
     }
 
-    // Filter out scroll actions when evaluating cycles between state-changing actions
-    const trackable = this.actionHistory.filter((entry) => !entry.includes('"action":"scroll"'));
+    // Filter out scroll and wait actions when evaluating cycles between state-changing actions
+    const trackable = this.actionHistory.filter(
+      (entry) => !entry.includes('"action":"scroll"') && !entry.includes('"action":"wait"'),
+    );
     const len = trackable.length;
 
     // Detect repeating cycles of length k (k = 1 to 5) repeated at least 3 times
@@ -565,7 +582,7 @@ export class AgentController {
         let totalActionMs = 0;
 
         for (let i = 0; i < actionsToExecute.length; i++) {
-          const action = actionsToExecute[i];
+          let action = actionsToExecute[i];
 
           if (this.stopRequested) {
             await this.cleanup(tabId);
@@ -579,12 +596,14 @@ export class AgentController {
 
           // Check for repeating action loops
           if (this.checkLoop(action)) {
-            const actionKey = JSON.stringify(action);
+            const actionKey = action.action === 'wait' ? 'wait-loop' : JSON.stringify(action);
             if (!this.loopWarningsIssued.has(actionKey)) {
               this.loopWarningsIssued.add(actionKey);
               let warning = `Loop warning: Action ${actionKey} was repeated 3 times without effect. If a modal dialog or form is open, do NOT click to open it again; interact with its form inputs, radio options, or submit/review buttons directly. Choose a different element or action.`;
               if (action.action === 'type') {
                 warning = `Loop warning: Action ${actionKey} was repeated 3 times without effect on the page. The text was not submitted or the Enter key was not accepted! Do NOT type the exact same text again. Instead, look for a 'Send' or 'Submit' button on the page (e.g. paper airplane, arrow icon, or 'Send' button) and CLICK it directly, or check if the page is currently generating/loading and use 'wait'.`;
+              } else if (action.action === 'wait') {
+                warning = `Wait loop warning: You have called 'wait' 3 consecutive times without taking an action on the page. If waiting for in-page streaming or background processing, inspect the text or progress generated so far and either finish with the available answer, scroll, or take the next required step. Do not wait indefinitely.`;
               }
               this.history.push({
                 step: this.currentStep,
@@ -605,9 +624,26 @@ export class AgentController {
               terminalReached = true;
               break;
             }
-            throw new Error(
-              `Loop detected: Agent repeated the exact action 3 times consecutively (${JSON.stringify(action)}). Aborting.`,
-            );
+
+            if (action.action === 'wait') {
+              let consecutiveWaits = 0;
+              for (let idx = this.actionHistory.length - 1; idx >= 0; idx--) {
+                if (this.actionHistory[idx].includes('"action":"wait"')) {
+                  consecutiveWaits++;
+                } else {
+                  break;
+                }
+              }
+              if (consecutiveWaits >= 5) {
+                throw new Error(
+                  `Loop detected: Agent repeated 'wait' ${consecutiveWaits} times consecutively without taking action. Aborting runaway wait loop.`,
+                );
+              }
+            } else {
+              throw new Error(
+                `Loop detected: Agent repeated the exact action 3 times consecutively (${JSON.stringify(action)}). Aborting.`,
+              );
+            }
           }
 
           if (action.action === 'finish') {

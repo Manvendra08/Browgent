@@ -850,7 +850,7 @@ You are an expert in...`}
         </div>
 
         {/* Modal Footer */}
-        <div className="p-3 border-t border-slate-800 bg-slate-950/60 flex justify-end gap-2 shrink-0">
+        <div className="p-3.5 border-t border-slate-800 bg-slate-950/60 flex justify-end gap-2 shrink-0">
           <button
             type="button"
             onClick={onClose}

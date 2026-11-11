@@ -513,7 +513,7 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
           type="button"
           onClick={scrollToBottom}
           aria-label="Jump to latest"
-          className="sticky bottom-2 ml-auto z-20 flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-[#4285F4] to-[#2563eb] hover:from-[#3b78e7] hover:to-[#1d4ed8] text-white text-[10px] font-semibold rounded-full shadow-lg border border-blue-400/40 transition cursor-pointer"
+          className="sticky bottom-2 ml-auto z-20 flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-[#4285F4] to-[#2563eb] hover:from-[#3b78e7] hover:to-[#1d4ed8] hover:scale-105 text-white text-[10px] font-semibold rounded-full shadow-lg border border-blue-400/40 transition-all cursor-pointer"
         >
           <ArrowDown className="w-3 h-3" />
           Latest

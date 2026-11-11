@@ -61,15 +61,15 @@ describe('Agent Controller', () => {
     }
   });
 
-  it('does not flag consecutive wait actions as loops', () => {
+  it('flags consecutive wait actions as loops on the 3rd consecutive wait', () => {
     const controller = new AgentController({
       llmConfig: { provider: 'omniroute', model: 'free' },
       maxSteps: 10,
     });
 
-    for (let i = 0; i < 5; i++) {
-      expect(controller.checkLoop({ action: 'wait', seconds: 2 })).toBe(false);
-    }
+    expect(controller.checkLoop({ action: 'wait', seconds: 2 })).toBe(false);
+    expect(controller.checkLoop({ action: 'wait', seconds: 2 })).toBe(false);
+    expect(controller.checkLoop({ action: 'wait', seconds: 2 })).toBe(true);
   });
 
   it('detects trackable action loops even when non-trackable wait actions are interleaved', () => {
