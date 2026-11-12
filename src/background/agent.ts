@@ -1400,6 +1400,10 @@ INSTRUCTIONS:
     - When sending a message in a chat box, you can use "pressEnter: true" on the input element, OR batch it with clicking the 'Send' / submit button (e.g. [button] "Send message" or send icon).
     - If a type action with pressEnter: true does not submit or clear the input box, ALWAYS find and click the visible "Send" button on the next step instead of repeating the type action.
     - Streaming responses: AI chat interfaces stream answers over several seconds. If a response ends mid-sentence or an active "Stop" / "Stop generating" button is visible, the AI is STILL GENERATING. Do NOT try to send another prompt or assume the response was cut off; issue a "wait" action (e.g. 5-10 seconds) until generation finishes and the input becomes active.
+16. FOR SITE-SPECIFIC MEMORY & ACTIVE LEARNING:
+    - If you discover a reusable, durable invariant about how this website operates (e.g. "SSO login requires clicking Company Login first", "Search dropdown requires pressing Enter", "Cookie modal must be dismissed via element [X]"), use the "remember_fact" action with {"action": "remember_fact", "fact": "..."} (or batch it with your navigation action).
+    - NEVER memorize transient session state (e.g. cart contents, current product price, temporary order IDs).
+    - If a previously remembered fact in "Site-Specific Memory" is proven obsolete or incorrect by the current DOM, use {"action": "forget_fact", "fact": "..."} to delete it.
 
 RESPONSE FORMAT:
 You MUST respond with a valid JSON block enclosed in \`\`\`json ... \`\`\`:
@@ -1407,7 +1411,7 @@ You MUST respond with a valid JSON block enclosed in \`\`\`json ... \`\`\`:
 {
   "thought": "Your concise step reasoning here...",
   "action": {
-    "action": "click" | "type" | "select_option" | "press_key" | "hover" | "scroll" | "navigate" | "wait" | "finish" | "fail" | "mcp_call",
+    "action": "click" | "type" | "select_option" | "press_key" | "hover" | "scroll" | "navigate" | "wait" | "finish" | "fail" | "mcp_call" | "remember_fact" | "forget_fact",
     ...action parameters...
   }
 }
