@@ -23,6 +23,7 @@ import {
   navigateToUrl,
 } from './cdp';
 import { isRestrictedUrl } from './restricted';
+import { addDomainFact, deleteDomainFact } from './memory';
 
 export const MAX_WAIT_SECONDS = 10;
 
@@ -194,6 +195,28 @@ export function parseAgentAction(raw: string): AgentAction {
       } as McpCallAction;
     }
 
+    case 'remember_fact': {
+      const fact = typeof obj.fact === 'string' ? obj.fact.trim() : '';
+      if (!fact) {
+        throw new Error('remember_fact action requires non-empty string "fact"');
+      }
+      return {
+        action: 'remember_fact',
+        fact,
+      };
+    }
+
+    case 'forget_fact': {
+      const fact = typeof obj.fact === 'string' ? obj.fact.trim() : '';
+      if (!fact) {
+        throw new Error('forget_fact action requires non-empty string "fact"');
+      }
+      return {
+        action: 'forget_fact',
+        fact,
+      };
+    }
+
     default:
       throw new Error(`Unsupported action type: "${action}"`);
   }
@@ -245,6 +268,7 @@ export async function executeAgentAction(
   tabId: number,
   action: AgentAction,
   elements: PerceivedElement[],
+  currentUrl?: string,
 ): Promise<{ success: boolean; error?: string; isTerminal?: boolean; summary?: string }> {
   try {
     switch (action.action) {
@@ -533,6 +557,51 @@ export async function executeAgentAction(
       case 'mcp_call': {
         // Handled by AgentController (needs the McpClient instance)
         return { success: false, error: 'MCP tool calls are dispatched by the agent controller' };
+      }
+
+      case 'remember_fact': {
+        let url = currentUrl;
+        if (!url && typeof chrome !== 'undefined' && chrome.tabs?.get) {
+          try {
+            const tab = await chrome.tabs.get(tabId);
+            url = tab.url;
+          } catch {
+            // Tab may not be reachable
+          }
+        }
+        if (!url) {
+          return { success: false, error: 'Cannot determine tab URL to remember domain fact' };
+        }
+        const res = await addDomainFact(url, action.fact);
+        if (!res.success) {
+          return { success: false, error: res.error || 'Failed to remember fact' };
+        }
+        return {
+          success: true,
+          summary: `Remembered domain fact: "${res.fact?.fact}"${res.evicted ? ` (evicted oldest: "${res.evicted.fact}")` : ''}`,
+        };
+      }
+
+      case 'forget_fact': {
+        let url = currentUrl;
+        if (!url && typeof chrome !== 'undefined' && chrome.tabs?.get) {
+          try {
+            const tab = await chrome.tabs.get(tabId);
+            url = tab.url;
+          } catch {
+            // Tab may not be reachable
+          }
+        }
+        if (!url) {
+          return { success: false, error: 'Cannot determine tab URL to forget domain fact' };
+        }
+        const deleted = await deleteDomainFact(url, action.fact);
+        return {
+          success: true,
+          summary: deleted
+            ? `Deleted domain fact matching: "${action.fact}"`
+            : `No matching domain fact found for: "${action.fact}"`,
+        };
       }
     }
   } catch (err: unknown) {

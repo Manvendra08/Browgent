@@ -314,6 +314,7 @@ chrome.runtime.onConnect.addListener((port) => {
           showOverlay,
           conversation,
           mode,
+          globalInstructions,
         } = msg.payload as {
           tabId?: number;
           goal: string;
@@ -325,6 +326,7 @@ chrome.runtime.onConnect.addListener((port) => {
           showOverlay?: boolean;
           conversation?: { prompt: string; result: string }[];
           mode?: 'ask' | 'agent';
+          globalInstructions?: string;
         };
 
         let targetTabId = explicitTabId ?? boundTabId;
@@ -407,6 +409,11 @@ chrome.runtime.onConnect.addListener((port) => {
           return;
         }
 
+        const effectiveGlobalInstructions =
+          typeof globalInstructions === 'string'
+            ? globalInstructions
+            : undefined;
+
         const agent = new AgentController({
           llmConfig,
           maxSteps: maxSteps || 25,
@@ -415,6 +422,7 @@ chrome.runtime.onConnect.addListener((port) => {
           mcpEndpoint,
           showOverlay: showOverlay ?? false,
           conversation: conversation || [],
+          globalInstructions: effectiveGlobalInstructions,
         });
         activeAgents.set(tabId, agent);
 

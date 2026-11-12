@@ -122,6 +122,30 @@ export const CORE_BROWSER_TOOLS: ToolDefinition[] = [
       required: ['reason'],
     },
   },
+  {
+    name: 'remember_fact',
+    description:
+      'Persist a short, durable rule or preference for the current website (max 10 facts per domain). Use when discovering an invariant preference or crucial login/navigation requirement.',
+    parameters: {
+      type: 'object',
+      properties: {
+        fact: { type: 'string', description: 'The durable rule or invariant to remember (max 250 characters)' },
+      },
+      required: ['fact'],
+    },
+  },
+  {
+    name: 'forget_fact',
+    description:
+      'Delete a previously remembered fact for the current website when it is discovered to be outdated or invalid.',
+    parameters: {
+      type: 'object',
+      properties: {
+        fact: { type: 'string', description: 'The exact fact or keyword to forget' },
+      },
+      required: ['fact'],
+    },
+  },
 ];
 
 export const MAX_MCP_TOOLS = 30;

@@ -20,7 +20,18 @@ import {
   Sparkles,
   User,
   Trash2,
+  Bookmark,
 } from 'lucide-react';
+import {
+  loadDomainMemory,
+  deleteDomainFact,
+  clearDomainFacts,
+  loadGlobalInstructions,
+  saveGlobalInstructions,
+  DomainMemoryStore,
+  MAX_FACTS_PER_DOMAIN,
+  MAX_GLOBAL_INSTRUCTIONS_LENGTH,
+} from '../../background/memory';
 import { LLMConfig, ProviderType } from '../../background/llm/types';
 import { Skill } from '../../background/skills/types';
 import { parseSkillMarkdown } from '../../background/skills/manager';
@@ -53,13 +64,14 @@ interface SettingsModalProps {
   onSaveShowOverlay?: (show: boolean) => void;
 }
 
-type SettingsTab = 'providers' | 'bounds' | 'mcp' | 'skills';
+type SettingsTab = 'providers' | 'bounds' | 'mcp' | 'skills' | 'memory';
 
 const TABS: { id: SettingsTab; label: string; icon: React.FC<{ className?: string }> }[] = [
   { id: 'providers', label: 'Models', icon: Cpu },
   { id: 'bounds', label: 'Agent', icon: Sliders },
   { id: 'mcp', label: 'MCP', icon: Database },
   { id: 'skills', label: 'Skills', icon: Zap },
+  { id: 'memory', label: 'Memory', icon: Bookmark },
 ];
 
 const PROVIDERS: { id: ProviderType; label: string }[] = [
@@ -94,6 +106,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [localShowOverlay, setLocalShowOverlay] = useState<boolean>(showOverlay ?? false);
   const [customSkillMarkdown, setCustomSkillMarkdown] = useState<string>('');
   const [skillAddedMessage, setSkillAddedMessage] = useState<string>('');
+  const [globalInstructionsText, setGlobalInstructionsText] = useState<string>('');
+  const [domainMemory, setDomainMemory] = useState<DomainMemoryStore>({});
 
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -168,6 +182,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setModelStatus('');
       setTestResult(null);
       setMcpTestResult(null);
+      loadGlobalInstructions().then(setGlobalInstructionsText);
+      loadDomainMemory().then(setDomainMemory);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
@@ -283,6 +299,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setLocalShowOverlay(showOverlay ?? false);
   }, [showOverlay, isOpen]);
 
+  const handleDeleteFact = async (domain: string, factId: string) => {
+    await deleteDomainFact(domain, factId);
+    const updated = await loadDomainMemory();
+    setDomainMemory(updated);
+  };
+
+  const handleClearDomain = async (domain: string) => {
+    await clearDomainFacts(domain);
+    const updated = await loadDomainMemory();
+    setDomainMemory(updated);
+  };
+
   if (!isOpen) return null;
 
   const handleSave = () => {
@@ -296,6 +324,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onSaveMaxSteps(localMaxSteps);
     onSaveMcpEndpoint(localMcpEndpoint);
     onSaveShowOverlay?.(localShowOverlay);
+    saveGlobalInstructions(globalInstructionsText);
     onClose();
   };
 
@@ -844,6 +873,92 @@ You are an expert in...`}
                   <Plus className="w-3 h-3" />
                   Add Skill
                 </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'memory' && (
+            <div className="space-y-4 text-xs">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-slate-200 font-medium">
+                    Global Directives &amp; Personality
+                  </label>
+                  <span className="text-[10px] text-slate-400">
+                    {globalInstructionsText.length} / {MAX_GLOBAL_INSTRUCTIONS_LENGTH} chars
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 mb-2">
+                  Permanent rules injected into every prompt (e.g. preferred output tone, identity, standard operating constraints).
+                </p>
+                <textarea
+                  rows={4}
+                  maxLength={MAX_GLOBAL_INSTRUCTIONS_LENGTH}
+                  value={globalInstructionsText}
+                  onChange={(e) => setGlobalInstructionsText(e.target.value)}
+                  placeholder="e.g., Always be direct and concise. Never click destructive delete buttons without asking."
+                  className="w-full bg-slate-900/90 border border-slate-700 rounded-md p-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 resize-none font-mono"
+                />
+              </div>
+
+              <div className="pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-slate-200 font-medium">
+                    Site-Specific Memory (Domain Facts)
+                  </label>
+                  <span className="text-[10px] text-slate-400">
+                    Max {MAX_FACTS_PER_DOMAIN} per domain (FIFO)
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 mb-3">
+                  Facts Browgent remembered about specific websites. Injected only when visiting the matching domain.
+                </p>
+
+                {Object.keys(domainMemory).length === 0 ? (
+                  <div className="text-center py-6 border border-dashed border-slate-800 rounded-lg text-slate-500 text-xs">
+                    No site memories stored yet. Browgent will record facts automatically when using <code className="text-indigo-400">remember_fact</code>.
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                    {Object.entries(domainMemory).map(([domain, facts]) => (
+                      <div
+                        key={domain}
+                        className="bg-slate-900/60 border border-slate-800 rounded-lg p-2.5 space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-slate-200 font-mono text-[11px]">
+                            {domain}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleClearDomain(domain)}
+                            className="text-[10px] text-rose-400 hover:text-rose-300 transition"
+                          >
+                            Clear domain
+                          </button>
+                        </div>
+                        <div className="space-y-1.5">
+                          {facts.map((f) => (
+                            <div
+                              key={f.id}
+                              className="flex items-start justify-between gap-2 bg-slate-950/60 border border-slate-800/80 rounded px-2 py-1.5 text-[11px] text-slate-300"
+                            >
+                              <span className="break-words flex-1">{f.fact}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteFact(domain, f.id)}
+                                className="text-slate-500 hover:text-rose-400 transition shrink-0 p-0.5"
+                                title="Delete fact"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

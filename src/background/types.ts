@@ -9,7 +9,9 @@ export type ActionType =
   | 'wait'
   | 'finish'
   | 'fail'
-  | 'mcp_call';
+  | 'mcp_call'
+  | 'remember_fact'
+  | 'forget_fact';
 
 export interface ClickAction {
   action: 'click';
@@ -71,6 +73,16 @@ export interface McpCallAction {
   args?: Record<string, unknown>;
 }
 
+export interface RememberFactAction {
+  action: 'remember_fact';
+  fact: string;
+}
+
+export interface ForgetFactAction {
+  action: 'forget_fact';
+  fact: string;
+}
+
 export type AgentAction =
   | ClickAction
   | TypeAction
@@ -82,7 +94,9 @@ export type AgentAction =
   | WaitAction
   | FinishAction
   | FailAction
-  | McpCallAction;
+  | McpCallAction
+  | RememberFactAction
+  | ForgetFactAction;
 
 export interface ActionResult {
   success: boolean;

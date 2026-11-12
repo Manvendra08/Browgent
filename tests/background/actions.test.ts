@@ -88,10 +88,27 @@ beforeEach(() => {
 
   debuggerAttach = vi.fn().mockResolvedValue(undefined);
 
+  const mockStorage: Record<string, unknown> = {};
+
   vi.stubGlobal('chrome', {
     tabs: {
       sendMessage,
       update: vi.fn(),
+    },
+    storage: {
+      local: {
+        get: vi.fn(async (keys: string[] | string) => {
+          const result: Record<string, unknown> = {};
+          const keyArray = Array.isArray(keys) ? keys : [keys];
+          for (const k of keyArray) {
+            if (k in mockStorage) result[k] = mockStorage[k];
+          }
+          return result;
+        }),
+        set: vi.fn(async (items: Record<string, unknown>) => {
+          Object.assign(mockStorage, items);
+        }),
+      },
     },
     runtime: { lastError: undefined },
     debugger: {
@@ -441,5 +458,41 @@ describe('executeAgentAction', () => {
 
     expect(result.success).toBe(true);
     expect(mockedDispatchHover).toHaveBeenCalledWith(TAB_ID, 25, 40);
+  });
+
+  describe('remember_fact & forget_fact actions', () => {
+    it('executes remember_fact and persists domain fact', async () => {
+      const result = await executeAgentAction(
+        TAB_ID,
+        { action: 'remember_fact', fact: 'Always use SSO login' },
+        ELEMENTS,
+        'https://github.com/org/repo',
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.summary).toContain('Remembered domain fact');
+      expect(result.summary).toContain('Always use SSO login');
+    });
+
+    it('executes forget_fact and removes domain fact', async () => {
+      // First remember
+      await executeAgentAction(
+        TAB_ID,
+        { action: 'remember_fact', fact: 'Temporary rule' },
+        ELEMENTS,
+        'https://github.com/org/repo',
+      );
+
+      // Now forget
+      const result = await executeAgentAction(
+        TAB_ID,
+        { action: 'forget_fact', fact: 'Temporary rule' },
+        ELEMENTS,
+        'https://github.com/org/repo',
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.summary).toContain('Deleted domain fact matching');
+    });
   });
 });

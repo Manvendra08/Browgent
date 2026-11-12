@@ -242,4 +242,38 @@ describe('SettingsModal tab navigation and connection testing', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save Settings/ }));
     expect(onSaveShowOverlay).toHaveBeenCalledWith(true);
   });
+
+  it('switches to Memory tab and updates global instructions', async () => {
+    let storedInstructions = '';
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn((_keys, cb) => {
+            const res = { browgent_global_instructions: 'Initial instructions', browgent_domain_memory: {} };
+            if (cb) cb(res);
+            return Promise.resolve(res);
+          }),
+          set: vi.fn((items, cb) => {
+            if (items.browgent_global_instructions !== undefined) {
+              storedInstructions = items.browgent_global_instructions;
+            }
+            if (cb) cb();
+            return Promise.resolve();
+          }),
+        },
+      },
+    });
+
+    renderModal();
+    fireEvent.click(screen.getByRole('button', { name: /^Memory$/ }));
+
+    expect(screen.getByText(/Global Directives & Personality/i)).toBeDefined();
+    expect(screen.getByText(/Site-Specific Memory/i)).toBeDefined();
+
+    const textarea = screen.getByPlaceholderText(/Always be direct and concise/i);
+    fireEvent.change(textarea, { target: { value: 'New global instructions rule' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Save Settings/ }));
+    expect(storedInstructions).toBe('New global instructions rule');
+  });
 });
