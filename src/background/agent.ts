@@ -799,6 +799,7 @@ export class AgentController {
             thought: decision.thought,
             domState,
             elements: currentElements,
+            initialElements: domState.elements,
             actionHistory: this.history.map((h) => h.action),
             stepNumber: this.currentStep,
             maxSteps: this.maxSteps,
@@ -807,26 +808,39 @@ export class AgentController {
           });
 
           if (reflection.status === 'rejected') {
-            const reflectionError = `Action rejected by reflection gate: ${reflection.reason}${reflection.correctionHint ? ` Hint: ${reflection.correctionHint}` : ''}`;
-            this.history.push({
-              step: this.currentStep,
-              thought: decision.thought,
-              action,
-              success: false,
-              error: reflectionError,
-              timestamp: Date.now(),
-            });
-            onProgress({
-              type: 'action_result',
-              data: {
+            if (reflection.suggestedAction) {
+              const prevId = (action as { elementId?: number }).elementId;
+              const newId = (reflection.suggestedAction as { elementId?: number }).elementId;
+              onProgress({
+                type: 'thought',
+                data: {
+                  step: this.currentStep,
+                  thought: `[Self-Healing] Element reference [${prevId}] shifted after page mutation. Auto-resolved substitute at [${newId}].`,
+                },
+              });
+              action = reflection.suggestedAction;
+            } else {
+              const reflectionError = `Action rejected by reflection gate: ${reflection.reason}${reflection.correctionHint ? ` Hint: ${reflection.correctionHint}` : ''}`;
+              this.history.push({
                 step: this.currentStep,
+                thought: decision.thought,
+                action,
                 success: false,
                 error: reflectionError,
-              },
-            });
-            await this.stabilizePage(this.currentTabId, action);
-            terminalReached = true;
-            break;
+                timestamp: Date.now(),
+              });
+              onProgress({
+                type: 'action_result',
+                data: {
+                  step: this.currentStep,
+                  success: false,
+                  error: reflectionError,
+                },
+              });
+              await this.stabilizePage(this.currentTabId, action);
+              terminalReached = true;
+              break;
+            }
           }
 
           if (
@@ -931,13 +945,14 @@ export class AgentController {
           // Re-perceive between chained sub-actions so the next action targets the live DOM
           // instead of a stale element map captured at the start of the turn.
           if (i < actionsToExecute.length - 1) {
+            // Stabilize page and settle DOM/network mutations triggered by the preceding sub-action
+            await this.stabilizePage(this.currentTabId, action);
             try {
               const refreshed = await this.capturePageDOM(this.currentTabId);
               currentElements = refreshed.elements;
             } catch {
               // Keep the previous element map; the action will fail loudly if the target is gone.
             }
-            await new Promise((r) => setTimeout(r, 150));
           }
         }
 
@@ -1828,7 +1843,8 @@ ${domState.formattedPrompt}${textBlock}
     // CDP Network Quiescence: ensure critical background XHR/fetch requests have settled
     if (typeof chrome !== 'undefined' && chrome.debugger) {
       try {
-        await waitForNetworkIdle(tabId, 150, lastAction?.action === 'click' ? 1200 : 500);
+        const isMutating = lastAction?.action === 'click' || lastAction?.action === 'type';
+        await waitForNetworkIdle(tabId, 250, isMutating ? 2000 : 800);
       } catch {
         // Fallback gracefully if debugger cannot be attached or Network domain is unsupported
       }

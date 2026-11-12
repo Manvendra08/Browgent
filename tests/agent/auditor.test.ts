@@ -108,6 +108,82 @@ describe('AuditorReflectionGate', () => {
         text: 'user@example.com',
       });
     });
+
+    it('identifies stale element reference for click using initialElement fingerprint', async () => {
+      const initialElements = [
+        { id: 12, tagName: 'BUTTON', role: 'button', text: 'Continue', rect: { x: 0, y: 0, width: 80, height: 25 } },
+      ];
+      const verdict = await gate.reflect({
+        goal: 'proceed',
+        goalKind: 'action',
+        action: { action: 'click', elementId: 12 },
+        thought: 'Clicking continue',
+        domState: mockDOM,
+        elements: mockDOM.elements,
+        initialElements,
+        stepNumber: 1,
+        maxSteps: 10,
+      });
+
+      expect(verdict.status).toBe('rejected');
+      expect(verdict.reason).toContain('Stale element reference');
+      expect(verdict.suggestedAction).toEqual({
+        action: 'click',
+        elementId: 3,
+      });
+    });
+
+    it('identifies stale element reference using explicit expectedText anchor', async () => {
+      const verdict = await gate.reflect({
+        goal: 'proceed',
+        goalKind: 'action',
+        action: { action: 'click', elementId: 88, expectedText: 'Continue', tag: 'button' } as any,
+        thought: 'Clicking continue button',
+        domState: mockDOM,
+        elements: mockDOM.elements,
+        stepNumber: 1,
+        maxSteps: 10,
+      });
+
+      expect(verdict.status).toBe('rejected');
+      expect(verdict.suggestedAction).toEqual(expect.objectContaining({
+        action: 'click',
+        elementId: 3,
+      }));
+    });
+
+    it('identifies stale element reference for select_option using label anchor', async () => {
+      const selectDOM: DOMState = {
+        ...mockDOM,
+        elements: [
+          ...mockDOM.elements,
+          {
+            id: 10,
+            tagName: 'SELECT',
+            label: 'Country',
+            text: '',
+            rect: { x: 0, y: 0, width: 100, height: 25 },
+          },
+        ],
+      };
+      const verdict = await gate.reflect({
+        goal: 'choose country',
+        goalKind: 'action',
+        action: { action: 'select_option', elementId: 99, value: 'US', targetLabel: 'Country' } as any,
+        thought: 'Selecting country',
+        domState: selectDOM,
+        elements: selectDOM.elements,
+        stepNumber: 1,
+        maxSteps: 10,
+      });
+
+      expect(verdict.status).toBe('rejected');
+      expect(verdict.suggestedAction).toEqual(expect.objectContaining({
+        action: 'select_option',
+        elementId: 10,
+        value: 'US',
+      }));
+    });
   });
 
   describe('Action Drift & Boundary Check', () => {

@@ -160,4 +160,81 @@ describe('AgentController batch action execution', () => {
     expect(actionEvents.length).toBe(2); // 1 navigate + 1 finish
     expect((actionEvents[0].data as { action: { action: string } }).action.action).toBe('navigate');
   });
+
+  it('auto-heals a stale element ID in a batch when DOM re-renders between sub-actions', async () => {
+    let getDomCount = 0;
+    const sendMessage = stubChrome();
+    sendMessage.mockImplementation(
+      (_tabId: number, payload: Record<string, unknown>, optionsOrCb: unknown, maybeCb?: (r: unknown) => void) => {
+        const cb = typeof optionsOrCb === 'function' ? (optionsOrCb as (r: unknown) => void) : maybeCb;
+        if (payload.type === 'GET_DOM_STATE') {
+          getDomCount++;
+          const elements =
+            getDomCount === 1
+              ? [
+                  { id: 3, tagName: 'BUTTON', role: 'button', text: 'Expand Form' },
+                  { id: 8, tagName: 'BUTTON', role: 'button', text: 'Submit Application' },
+                ]
+              : [
+                  { id: 3, tagName: 'BUTTON', role: 'button', text: 'Form Expanded' },
+                  { id: 25, tagName: 'BUTTON', role: 'button', text: 'Submit Application' },
+                ];
+          cb?.({
+            success: true,
+            data: {
+              url: 'https://example.com/apply',
+              title: 'Job Form',
+              elements,
+              formattedPrompt: '[3] button "Expand"\n[25] button "Submit Application"',
+              textExcerpt: 'Application Form',
+              viewport: { width: 1280, height: 800, scrollX: 0, scrollY: 0, atBottom: false },
+            },
+          });
+          return;
+        }
+        cb?.({ success: true, rect: { x: 10, y: 20, width: 100, height: 20 } });
+      },
+    );
+
+    mockedQueryLLM.mockResolvedValueOnce({
+      thought: 'Clicking expand and then submit in batch',
+      action: { action: 'click', elementId: 3 },
+      actions: [
+        { action: 'click', elementId: 3 },
+        { action: 'click', elementId: 8 }, // planned as 8, but will shift to 25
+      ],
+    }).mockResolvedValueOnce({
+      thought: 'Finish',
+      action: { action: 'finish', summary: 'Application submitted successfully' },
+    });
+
+    mockedQueryLLMRaw.mockResolvedValue(
+      '```json\n{"confirmed": true, "evidence": "Submitted"}\n```',
+    );
+
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 5,
+    });
+
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const result = await controller.run(1, 'submit application', (event) => events.push(event));
+
+    expect(result.success).toBe(true);
+
+    // Verify self-healing thought was emitted
+    const thoughtEvents = events.filter((e) => e.type === 'thought');
+    const healingThought = thoughtEvents.find((e) =>
+      String((e.data as { thought: string }).thought).includes('[Self-Healing]'),
+    );
+    expect(healingThought).toBeDefined();
+
+    // Verify the click message was dispatched to the healed element ID [25], NOT the stale [8]
+    const clickMessages = sendMessage.mock.calls.filter(
+      ([, payload]) => (payload as { type: string }).type === 'CLICK_ELEMENT',
+    );
+    expect(clickMessages.length).toBe(2);
+    expect((clickMessages[0][1] as { elementId: number }).elementId).toBe(3);
+    expect((clickMessages[1][1] as { elementId: number }).elementId).toBe(25);
+  });
 });

@@ -12,6 +12,7 @@ export interface AuditorReflectionInput {
   thought: string;
   domState: DOMState;
   elements: PerceivedElement[];
+  initialElements?: PerceivedElement[];
   actionHistory?: AgentAction[];
   stepNumber: number;
   maxSteps: number;
@@ -116,8 +117,9 @@ export class AuditorReflectionGate implements IAuditorReflectionGate {
           return null;
         }
 
-        // Element was NOT found in the perception tree (stale ID). Search for substitute.
-        const substitute = this.findMatchingSubstitute(action, elements);
+        // Element was NOT found in the perception tree (stale ID). Search for substitute using fingerprints.
+        const originalTarget = input.initialElements?.find((e) => e.id === targetId);
+        const substitute = this.findMatchingSubstitute(action, elements, originalTarget);
         if (substitute) {
           const subName =
             substitute.text || substitute.label || substitute.placeholder || substitute.role || '';
@@ -272,20 +274,125 @@ export class AuditorReflectionGate implements IAuditorReflectionGate {
   }
 
   /**
-   * Heuristic search to match a stale element ID with its re-rendered equivalent
-   * based on tagName, role, label, text, or placeholder.
+   * Fingerprint search to match a stale element ID with its re-rendered equivalent
+   * based on explicit anchor attributes or the original perceived element's
+   * tagName, role, label, text, placeholder, or ariaLabel.
    */
   private findMatchingSubstitute(
-    action: AgentAction & { elementId?: number; text?: string },
+    action: AgentAction & {
+      elementId?: number;
+      text?: string;
+      expectedText?: string;
+      role?: string;
+      tag?: string;
+      targetLabel?: string;
+    },
     elements: PerceivedElement[],
+    originalTarget?: PerceivedElement,
   ): PerceivedElement | undefined {
-    // If action is a type action, look for an input/textarea with similar attributes
+    // 1. Text & Label Anchors to match
+    const rawTargetText =
+      action.expectedText ||
+      action.targetLabel ||
+      originalTarget?.text ||
+      originalTarget?.label ||
+      originalTarget?.ariaLabel ||
+      '';
+    const targetText = rawTargetText.trim().toLowerCase();
+
+    const targetRole = (action.role || originalTarget?.role || '').trim().toLowerCase();
+    const targetTag = (action.tag || originalTarget?.tagName || '').trim().toUpperCase();
+
+    // 2. Click / Hover Actions: Match by text + role/tagName
+    if (action.action === 'click' || action.action === 'hover') {
+      if (targetText) {
+        // High confidence: exact text or label match with compatible role/tag
+        const exactMatch = elements.find(
+          (el) =>
+            !el.disabled &&
+            (el.text?.trim().toLowerCase() === targetText ||
+              el.label?.trim().toLowerCase() === targetText ||
+              el.ariaLabel?.trim().toLowerCase() === targetText) &&
+            (!targetRole || el.role?.toLowerCase() === targetRole || el.tagName.toUpperCase() === targetTag),
+        );
+        if (exactMatch) return exactMatch;
+
+        // Substring / prefix match if text is substantial (>= 3 chars)
+        if (targetText.length >= 3) {
+          const partialMatch = elements.find(
+            (el) =>
+              !el.disabled &&
+              ((el.text && el.text.toLowerCase().includes(targetText)) ||
+                (el.label && el.label.toLowerCase().includes(targetText)) ||
+                (el.ariaLabel && el.ariaLabel.toLowerCase().includes(targetText))),
+          );
+          if (partialMatch) return partialMatch;
+        }
+      }
+
+      // If originalTarget was a button or link without unique text, match by sole role in container
+      if (originalTarget?.role === 'button' || originalTarget?.tagName === 'BUTTON') {
+        const buttons = elements.filter(
+          (el) => !el.disabled && (el.role === 'button' || el.tagName === 'BUTTON'),
+        );
+        if (buttons.length === 1) {
+          return buttons[0];
+        }
+      }
+    }
+
+    // 3. Type Actions: Match by label, placeholder, aria-label, group, or fallback to compatible input
     if (action.action === 'type') {
-      return elements.find(
+      const inputs = elements.filter(
         (el) =>
-          (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.role === 'textbox') &&
-          !el.disabled,
+          !el.disabled &&
+          (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.role === 'textbox'),
       );
+
+      if (targetText) {
+        const matchingInput = inputs.find(
+          (el) =>
+            (el.label && el.label.toLowerCase().includes(targetText)) ||
+            (el.placeholder && el.placeholder.toLowerCase().includes(targetText)) ||
+            (el.ariaLabel && el.ariaLabel.toLowerCase().includes(targetText)) ||
+            (originalTarget?.group && el.group && el.group.toLowerCase() === originalTarget.group.toLowerCase()),
+        );
+        if (matchingInput) return matchingInput;
+      }
+
+      // If original had placeholder or label
+      if (originalTarget?.placeholder) {
+        const ph = originalTarget.placeholder.toLowerCase();
+        const phMatch = inputs.find((el) => el.placeholder?.toLowerCase() === ph);
+        if (phMatch) return phMatch;
+      }
+
+      if (originalTarget?.label) {
+        const lbl = originalTarget.label.toLowerCase();
+        const lblMatch = inputs.find((el) => el.label?.toLowerCase() === lbl);
+        if (lblMatch) return lblMatch;
+      }
+
+      // Fallback: If only 1 input exists on the page, safe to adopt
+      if (inputs.length === 1) {
+        return inputs[0];
+      }
+    }
+
+    // 4. Select Option Actions: Match select element by label or placeholder
+    if (action.action === 'select_option') {
+      const selects = elements.filter((el) => !el.disabled && el.tagName === 'SELECT');
+      if (targetText) {
+        const matchingSelect = selects.find(
+          (el) =>
+            (el.label && el.label.toLowerCase().includes(targetText)) ||
+            (el.ariaLabel && el.ariaLabel.toLowerCase().includes(targetText)),
+        );
+        if (matchingSelect) return matchingSelect;
+      }
+      if (selects.length === 1) {
+        return selects[0];
+      }
     }
 
     return undefined;
