@@ -27,7 +27,9 @@ export interface AuditorReflectionVerdict {
 }
 
 export interface IAuditorReflectionGate {
-  reflect(input: AuditorReflectionInput): Promise<AuditorReflectionVerdict> | AuditorReflectionVerdict;
+  reflect(
+    input: AuditorReflectionInput,
+  ): Promise<AuditorReflectionVerdict> | AuditorReflectionVerdict;
   checkElementRecovery(input: AuditorReflectionInput): AuditorReflectionVerdict | null;
   checkActionDrift(input: AuditorReflectionInput): AuditorReflectionVerdict | null;
   checkGoalSatisfaction(input: AuditorReflectionInput): AuditorReflectionVerdict | null;
@@ -117,7 +119,8 @@ export class AuditorReflectionGate implements IAuditorReflectionGate {
         // Element was NOT found in the perception tree (stale ID). Search for substitute.
         const substitute = this.findMatchingSubstitute(action, elements);
         if (substitute) {
-          const subName = substitute.text || substitute.label || substitute.placeholder || substitute.role || '';
+          const subName =
+            substitute.text || substitute.label || substitute.placeholder || substitute.role || '';
           return {
             status: 'rejected',
             reason: `Stale element reference: ID [${targetId}] does not exist in the current DOM.`,
@@ -128,7 +131,9 @@ export class AuditorReflectionGate implements IAuditorReflectionGate {
 
         const availableSample = elements
           .slice(0, 6)
-          .map((e) => `[${e.id}] ${e.role || e.tagName}: "${(e.text || e.label || '').slice(0, 16)}"`)
+          .map(
+            (e) => `[${e.id}] ${e.role || e.tagName}: "${(e.text || e.label || '').slice(0, 16)}"`,
+          )
           .join(', ');
 
         return {
@@ -177,7 +182,8 @@ export class AuditorReflectionGate implements IAuditorReflectionGate {
         return {
           status: 'rejected',
           reason: 'Cannot scroll down further: viewport is already at the bottom of the page.',
-          correctionHint: 'You have reached the bottom of the page. Do not scroll down anymore. Look at the visible interactive elements, or scroll up if you need to find earlier sections.',
+          correctionHint:
+            'You have reached the bottom of the page. Do not scroll down anymore. Look at the visible interactive elements, or scroll up if you need to find earlier sections.',
         };
       }
     }
@@ -189,7 +195,8 @@ export class AuditorReflectionGate implements IAuditorReflectionGate {
         return {
           status: 'rejected',
           reason: 'Excessive consecutive wait actions without intermediate state progression.',
-          correctionHint: 'The browser has already waited across multiple consecutive steps. Do not wait again; inspect the current page content and choose a concrete action or finish.',
+          correctionHint:
+            'The browser has already waited across multiple consecutive steps. Do not wait again; inspect the current page content and choose a concrete action or finish.',
         };
       }
     }
@@ -198,13 +205,16 @@ export class AuditorReflectionGate implements IAuditorReflectionGate {
     if (actionHistory.length >= 3) {
       const aPrev = JSON.stringify(actionHistory[actionHistory.length - 1]);
       const aPrevPrev = JSON.stringify(actionHistory[actionHistory.length - 2]);
+      const aPrevPrevPrev = JSON.stringify(actionHistory[actionHistory.length - 3]);
       const aCurrent = JSON.stringify(action);
 
-      if (aCurrent === aPrevPrev && aCurrent !== aPrev) {
+      // Pattern: [A, B, A] -> now proposing B
+      if (aCurrent === aPrevPrev && aPrev === aPrevPrevPrev && aCurrent !== aPrev) {
         return {
           status: 'rejected',
           reason: 'Oscillating action loop detected (alternating between two identical actions).',
-          correctionHint: 'You are stuck in a 2-step toggle cycle (alternating between two actions). Break out of the loop by selecting a different element or completing the task.',
+          correctionHint:
+            'You are stuck in a 2-step toggle cycle (alternating between two actions). Break out of the loop by selecting a different element or completing the task.',
         };
       }
     }
@@ -222,7 +232,11 @@ export class AuditorReflectionGate implements IAuditorReflectionGate {
 
     // Check 1: Premature Finish with Active Form Validation Errors
     if (action.action === 'finish') {
-      if (goalKind === 'action' && domState.validationErrors && domState.validationErrors.length > 0) {
+      if (
+        goalKind === 'action' &&
+        domState.validationErrors &&
+        domState.validationErrors.length > 0
+      ) {
         return {
           status: 'rejected',
           reason: `Cannot finish: on-page form validation errors detected (${domState.validationErrors.join(', ')}).`,

@@ -431,7 +431,15 @@ chrome.runtime.onConnect.addListener((port) => {
 
         try {
           const onProgressCb = (event: {
-            type: 'step' | 'thought' | 'action' | 'action_result' | 'step_telemetry' | 'done' | 'error';
+            type:
+              | 'step'
+              | 'thought'
+              | 'action'
+              | 'action_result'
+              | 'step_telemetry'
+              | 'done'
+              | 'error'
+              | 'approval_requested';
             data?: unknown;
           }) => {
             port.postMessage({ type: 'AGENT_EVENT', event });
@@ -453,6 +461,28 @@ chrome.runtime.onConnect.addListener((port) => {
           port.postMessage({ type: 'ERROR', error: msgStr });
         } finally {
           activeAgents.delete(tabId);
+        }
+      }
+
+      if (msg.type === 'APPROVE_ACTION') {
+        const targetTabId = (msg.payload as { tabId?: number } | undefined)?.tabId ?? boundTabId;
+        const agent =
+          typeof targetTabId === 'number'
+            ? activeAgents.get(targetTabId)
+            : activeAgents.values().next().value;
+        if (agent) {
+          agent.resolveApproval(true);
+        }
+      }
+
+      if (msg.type === 'REJECT_ACTION') {
+        const targetTabId = (msg.payload as { tabId?: number } | undefined)?.tabId ?? boundTabId;
+        const agent =
+          typeof targetTabId === 'number'
+            ? activeAgents.get(targetTabId)
+            : activeAgents.values().next().value;
+        if (agent) {
+          agent.resolveApproval(false);
         }
       }
 

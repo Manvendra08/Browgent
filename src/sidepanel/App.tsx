@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Bot, Sun, Moon, Plus, Clock } from 'lucide-react';
+import { Settings, Bot, Sun, Moon, Plus, Clock, AlertTriangle } from 'lucide-react';
 import { LLMConfig } from '../background/llm/types';
+import { AgentAction } from '../background/types';
 import { Skill } from '../background/skills/types';
 import { BUILTIN_SKILLS, loadStoredSkills, saveStoredSkills } from '../background/skills/manager';
 import { AttachedFile } from '../background/files/parser';
@@ -87,6 +88,11 @@ export const App: React.FC = () => {
   const [agentTab, setAgentTab] = useState<ActiveTabInfo | null>(null);
   const [customStarters, setCustomStarters] = useState<Record<string, ContextualStarter[]>>({});
   const [isGeneratingStarters, setIsGeneratingStarters] = useState<boolean>(false);
+  const [pendingApproval, setPendingApproval] = useState<{
+    step: number;
+    action: AgentAction;
+    reason: string;
+  } | null>(null);
 
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -250,6 +256,17 @@ export const App: React.FC = () => {
 
         if (msg.type === 'AGENT_EVENT') {
           const event = msg.event;
+          if (event.type === 'approval_requested') {
+            setPendingApproval(
+              event.data as { step: number; action: AgentAction; reason: string },
+            );
+          } else if (
+            event.type === 'action_result' ||
+            event.type === 'done' ||
+            event.type === 'error'
+          ) {
+            setPendingApproval(null);
+          }
           const currentTurnId = activeTurnIdRef.current;
           if (currentTurnId) {
             setThreads((prevThreads) =>
@@ -278,6 +295,7 @@ export const App: React.FC = () => {
         }
 
         if (msg.type === 'FINISHED') {
+          setPendingApproval(null);
           setAgentTab(null);
           setStatus(msg.success ? 'completed' : 'failed');
           const currentTurnId = activeTurnIdRef.current;
@@ -306,6 +324,7 @@ export const App: React.FC = () => {
         }
 
         if (msg.type === 'ERROR') {
+          setPendingApproval(null);
           setStatus('failed');
           setAgentTab(null);
           const currentTurnId = activeTurnIdRef.current;
@@ -727,6 +746,7 @@ export const App: React.FC = () => {
   };
 
   const handleStop = () => {
+    setPendingApproval(null);
     const port = getOrCreatePort();
     if (port) {
       port.postMessage({
@@ -760,7 +780,34 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleApproveAction = () => {
+    const port = getOrCreatePort();
+    if (port) {
+      port.postMessage({
+        type: 'APPROVE_ACTION',
+        payload: {
+          tabId: boundTabId ?? activeTab?.id,
+        },
+      });
+    }
+    setPendingApproval(null);
+  };
+
+  const handleRejectAction = () => {
+    const port = getOrCreatePort();
+    if (port) {
+      port.postMessage({
+        type: 'REJECT_ACTION',
+        payload: {
+          tabId: boundTabId ?? activeTab?.id,
+        },
+      });
+    }
+    setPendingApproval(null);
+  };
+
   const handleNewChat = () => {
+    setPendingApproval(null);
     updateTabActiveThread(null);
     activeTurnIdRef.current = null;
     setStatus('idle');
@@ -875,6 +922,44 @@ export const App: React.FC = () => {
           handleRun(prompt, turnMode);
         }}
       />
+
+      {/* Destructive Action Approval Gate Card */}
+      {pendingApproval && (
+        <div
+          data-testid="approval-gate-card"
+          className="mx-3 my-2 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10 dark:bg-amber-950/30 shadow-sm animate-in fade-in"
+        >
+          <div className="flex items-start gap-2.5">
+            <div className="p-1.5 rounded-full bg-amber-500/20 text-amber-500 flex-shrink-0 mt-0.5">
+              <AlertTriangle className="w-4 h-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+                Action Approval Required (Step {pendingApproval.step})
+              </div>
+              <p className="text-xs text-neutral-700 dark:text-neutral-300 mt-0.5 break-words">
+                {pendingApproval.reason}
+              </p>
+              <div className="flex items-center gap-2 mt-2.5">
+                <button
+                  type="button"
+                  onClick={handleApproveAction}
+                  className="px-3 py-1 text-xs font-medium rounded bg-amber-600 hover:bg-amber-700 text-white transition-colors cursor-pointer"
+                >
+                  Approve Action
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRejectAction}
+                  className="px-3 py-1 text-xs font-medium rounded border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
+                >
+                  Reject
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Goal Input Dock */}
       <GoalInput

@@ -135,7 +135,15 @@ export async function saveThreads(threads: Thread[]): Promise<void> {
 }
 
 export interface AgentEventPayload {
-  type: 'step' | 'thought' | 'action' | 'action_result' | 'step_telemetry' | 'done' | 'error';
+  type:
+    | 'step'
+    | 'thought'
+    | 'action'
+    | 'action_result'
+    | 'step_telemetry'
+    | 'done'
+    | 'error'
+    | 'approval_requested';
   data?: unknown;
 }
 
@@ -220,6 +228,22 @@ export function applyAgentEvent(turn: Turn, event: AgentEventPayload): Turn {
           status: resData?.success ? 'success' : 'error',
           error: resData?.error,
           timings: resData?.timings ?? last.timings,
+        };
+      }
+      return {
+        ...turn,
+        steps: nextSteps,
+      };
+    }
+
+    case 'approval_requested': {
+      const appData = event.data as { step?: number; action?: AgentAction; reason?: string };
+      if (nextSteps.length > 0) {
+        const last = nextSteps[nextSteps.length - 1];
+        nextSteps[nextSteps.length - 1] = {
+          ...last,
+          action: appData?.action ?? last.action,
+          thought: `⚠️ Action Confirmation Required: ${appData?.reason ?? 'Destructive action detected'}`,
         };
       }
       return {

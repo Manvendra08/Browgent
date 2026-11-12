@@ -494,4 +494,63 @@ describe('Sidepanel App Conversational Flow', () => {
       expect(screen.getByText(/Screenshot-Example_Page/)).toBeDefined();
     });
   });
+
+  it('renders destructive action review gate card and emits approval across port', async () => {
+    let messageListener: ((msg: any) => void) | null = null;
+    const postMessageMock = vi.fn();
+
+    vi.mocked(chrome.runtime.connect).mockReturnValue({
+      postMessage: postMessageMock,
+      onMessage: {
+        addListener: vi.fn((cb) => {
+          messageListener = cb;
+        }),
+        removeListener: vi.fn(),
+      },
+      onDisconnect: {
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+      },
+    } as any);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(messageListener).toBeDefined();
+    });
+
+    // Simulate an approval_requested event from background
+    act(() => {
+      messageListener?.({
+        type: 'AGENT_EVENT',
+        event: {
+          type: 'approval_requested',
+          data: {
+            step: 3,
+            action: { action: 'click', elementId: 7 },
+            reason: 'Financial action detected: "Pay Now $99". Requires user confirmation.',
+          },
+        },
+      });
+    });
+
+    // Card should be rendered
+    await waitFor(() => {
+      expect(screen.getByTestId('approval-gate-card')).toBeDefined();
+      expect(screen.getByText(/Financial action detected: "Pay Now \$99"/)).toBeDefined();
+    });
+
+    // Click Approve Action
+    const approveBtn = screen.getByText('Approve Action');
+    fireEvent.click(approveBtn);
+
+    expect(postMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'APPROVE_ACTION',
+      }),
+    );
+
+    // Card should disappear after approval
+    expect(screen.queryByTestId('approval-gate-card')).toBeNull();
+  });
 });

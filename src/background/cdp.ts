@@ -298,3 +298,94 @@ export async function captureScreenshotCdp(
   }
   return null;
 }
+
+/**
+ * Monitors network activity via Chrome DevTools Protocol and resolves when
+ * no active requests have been in-flight for `quietMs` milliseconds,
+ * bounded by a hard ceiling `maxTimeoutMs`.
+ */
+export async function waitForNetworkIdle(
+  tabId: number,
+  quietMs = 300,
+  maxTimeoutMs = 2000,
+): Promise<boolean> {
+  if (typeof chrome === 'undefined' || !chrome.debugger) {
+    return true;
+  }
+
+  try {
+    await attachDebugger(tabId);
+    await sendCdpCommand(tabId, 'Network.enable').catch(() => {});
+  } catch {
+    return true;
+  }
+
+  return new Promise<boolean>((resolve) => {
+    const inFlightRequests = new Set<string>();
+    let quietTimer: ReturnType<typeof setTimeout> | null = null;
+    let maxTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+    let cleanedUp = false;
+
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      if (quietTimer) clearTimeout(quietTimer);
+      if (maxTimeoutTimer) clearTimeout(maxTimeoutTimer);
+      if (chrome.debugger?.onEvent) {
+        chrome.debugger.onEvent.removeListener(onEventListener);
+      }
+    };
+
+    const restartQuietTimer = () => {
+      if (quietTimer) clearTimeout(quietTimer);
+      quietTimer = setTimeout(() => {
+        cleanup();
+        resolve(true);
+      }, quietMs);
+    };
+
+    const onEventListener = (
+      source: chrome.debugger.Debuggee,
+      method: string,
+      params?: unknown,
+    ) => {
+      if (source.tabId !== tabId) return;
+
+      if (method === 'Network.requestWillBeSent') {
+        const p = params as { requestId?: string } | undefined;
+        if (p?.requestId) {
+          inFlightRequests.add(p.requestId);
+          if (quietTimer) {
+            clearTimeout(quietTimer);
+            quietTimer = null;
+          }
+        }
+      } else if (
+        method === 'Network.loadingFinished' ||
+        method === 'Network.loadingFailed'
+      ) {
+        const p = params as { requestId?: string } | undefined;
+        if (p?.requestId) {
+          inFlightRequests.delete(p.requestId);
+        }
+        if (inFlightRequests.size === 0) {
+          restartQuietTimer();
+        }
+      }
+    };
+
+    if (chrome.debugger?.onEvent) {
+      chrome.debugger.onEvent.addListener(onEventListener);
+    }
+
+    // Start initial quiet timer in case no requests are currently in flight
+    restartQuietTimer();
+
+    // Hard ceiling
+    maxTimeoutTimer = setTimeout(() => {
+      cleanup();
+      resolve(inFlightRequests.size === 0);
+    }, maxTimeoutMs);
+  });
+}
+

@@ -8,9 +8,16 @@ import { ToolRegistry } from './tools/registry';
 import { McpClient } from './mcp/client';
 import { Skill } from './skills/types';
 import { AttachedFile, formatAttachedFilesForPrompt } from './files/parser';
-import { detachDebugger, enableDialogHandling, DialogDisposer, captureScreenshotCdp } from './cdp';
+import {
+  detachDebugger,
+  enableDialogHandling,
+  DialogDisposer,
+  captureScreenshotCdp,
+  waitForNetworkIdle,
+} from './cdp';
 import { isRestrictedUrl, RESTRICTED_URL_HINT } from './restricted';
 import { defaultAuditorReflectionGate, IAuditorReflectionGate } from './auditor';
+import { evaluateDestructiveAction } from './approval';
 
 export type AgentStatus = 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'stopped';
 
@@ -255,6 +262,7 @@ export class AgentController {
   private readonly pageNonce: string = Math.random().toString(36).slice(2, 12);
   private runAbortController: AbortController | null = null;
   public readonly auditorGate: IAuditorReflectionGate;
+  private pendingApprovalResolver?: (approved: boolean) => void;
 
   constructor(options: AgentOptions) {
     this.llmConfig = options.llmConfig;
@@ -287,6 +295,25 @@ export class AgentController {
     this.stopRequested = true;
     this.status = 'stopped';
     this.runAbortController?.abort();
+    if (this.pendingApprovalResolver) {
+      const resolver = this.pendingApprovalResolver;
+      this.pendingApprovalResolver = undefined;
+      resolver(false);
+    }
+  }
+
+  public resolveApproval(approved: boolean): void {
+    if (this.pendingApprovalResolver) {
+      const resolver = this.pendingApprovalResolver;
+      this.pendingApprovalResolver = undefined;
+      resolver(approved);
+    }
+  }
+
+  public waitForApproval(): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      this.pendingApprovalResolver = resolve;
+    });
   }
 
   public checkLoop(action: AgentAction): boolean {
@@ -301,7 +328,10 @@ export class AgentController {
       const waitHistory = this.actionHistory.slice(-2);
       this.actionHistory.push(serialized);
       // Trigger loop detection on 3rd consecutive wait (or subsequent consecutive waits)
-      if (waitHistory.length === 2 && waitHistory.every((entry) => entry.includes('"action":"wait"'))) {
+      if (
+        waitHistory.length === 2 &&
+        waitHistory.every((entry) => entry.includes('"action":"wait"'))
+      ) {
         return true;
       }
       return false;
@@ -351,7 +381,15 @@ export class AgentController {
     tabId: number,
     goal: string,
     onProgress: (event: {
-      type: 'step' | 'thought' | 'action' | 'action_result' | 'step_telemetry' | 'done' | 'error';
+      type:
+        | 'step'
+        | 'thought'
+        | 'action'
+        | 'action_result'
+        | 'step_telemetry'
+        | 'done'
+        | 'error'
+        | 'approval_requested';
       data?: unknown;
     }) => void,
   ): Promise<{ success: boolean; summary?: string; error?: string }> {
@@ -729,6 +767,113 @@ export class AgentController {
             await this.cleanup(this.currentTabId);
             onProgress({ type: 'error', data: { error: action.reason } });
             return { success: false, error: action.reason };
+          }
+
+          // Pre-execution reflection & validation gate
+          const reflection = await this.auditorGate.reflect({
+            goal,
+            goalKind: classifyGoalKind(goal),
+            action,
+            thought: decision.thought,
+            domState,
+            elements: currentElements,
+            actionHistory: this.history.map((h) => h.action),
+            stepNumber: this.currentStep,
+            maxSteps: this.maxSteps,
+            lastError:
+              this.history.length > 0 ? this.history[this.history.length - 1].error : undefined,
+          });
+
+          if (reflection.status === 'rejected') {
+            const reflectionError = `Action rejected by reflection gate: ${reflection.reason}${reflection.correctionHint ? ` Hint: ${reflection.correctionHint}` : ''}`;
+            this.history.push({
+              step: this.currentStep,
+              thought: decision.thought,
+              action,
+              success: false,
+              error: reflectionError,
+              timestamp: Date.now(),
+            });
+            onProgress({
+              type: 'action_result',
+              data: {
+                step: this.currentStep,
+                success: false,
+                error: reflectionError,
+              },
+            });
+            await this.stabilizePage(this.currentTabId, action);
+            terminalReached = true;
+            break;
+          }
+
+          if (
+            reflection.status === 'early_finish' &&
+            reflection.suggestedAction?.action === 'finish'
+          ) {
+            onProgress({
+              type: 'thought',
+              data: {
+                step: this.currentStep,
+                thought: `Auditor detected on-page goal completion. Transitioning to finish.`,
+              },
+            });
+            action = reflection.suggestedAction;
+            const verdict = await this.verifyCompletion(
+              this.currentTabId,
+              goal,
+              action.summary || '',
+              domState,
+              screenshot,
+            );
+            if (verdict.confirmed) {
+              this.status = 'completed';
+              this.history.push({
+                step: this.currentStep,
+                thought: decision.thought,
+                action,
+                success: true,
+                timestamp: Date.now(),
+              });
+              await this.cleanup(this.currentTabId);
+              onProgress({ type: 'done', data: { summary: action.summary } });
+              return { success: true, summary: action.summary };
+            }
+          }
+
+          // Destructive Action Human-in-the-Loop Review Gate
+          const destructiveCheck = evaluateDestructiveAction(action, currentElements);
+          if (destructiveCheck.isDestructive) {
+            onProgress({
+              type: 'approval_requested',
+              data: {
+                step: this.currentStep,
+                action,
+                reason: destructiveCheck.reason,
+              },
+            });
+
+            const approved = await this.waitForApproval();
+            if (!approved) {
+              const rejectionMsg = `Action rejected by user: ${destructiveCheck.reason}`;
+              onProgress({
+                type: 'action_result',
+                data: {
+                  step: this.currentStep,
+                  success: false,
+                  error: rejectionMsg,
+                },
+              });
+              this.history.push({
+                step: this.currentStep,
+                thought: decision.thought,
+                action,
+                success: false,
+                error: rejectionMsg,
+                timestamp: Date.now(),
+              });
+              break;
+            }
           }
 
           const tActionStart = Date.now();
@@ -1618,6 +1763,15 @@ ${domState.formattedPrompt}${textBlock}
         await new Promise((r) => setTimeout(r, 400));
       } else {
         await new Promise((r) => setTimeout(r, 150));
+      }
+    }
+
+    // CDP Network Quiescence: ensure critical background XHR/fetch requests have settled
+    if (typeof chrome !== 'undefined' && chrome.debugger) {
+      try {
+        await waitForNetworkIdle(tabId, 150, lastAction?.action === 'click' ? 1200 : 500);
+      } catch {
+        // Fallback gracefully if debugger cannot be attached or Network domain is unsupported
       }
     }
   }

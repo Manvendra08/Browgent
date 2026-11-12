@@ -265,4 +265,44 @@ describe('CDP enableDialogHandling', () => {
       expect.any(Function),
     );
   });
+
+  describe('waitForNetworkIdle', () => {
+    it('resolves true when no network requests occur within quietMs', async () => {
+      const result = await cdp.waitForNetworkIdle(5, 20, 100);
+      expect(result).toBe(true);
+      expect(debuggerSendCommand).toHaveBeenCalledWith(
+        { tabId: 5 },
+        'Network.enable',
+        {},
+        expect.any(Function),
+      );
+    });
+
+    it('tracks in-flight requests and resolves true once all complete and quietMs elapses', async () => {
+      const promise = cdp.waitForNetworkIdle(5, 30, 200);
+      await new Promise((r) => setTimeout(r, 5));
+
+      // Simulate a request starting
+      onEventListener?.({ tabId: 5 }, 'Network.requestWillBeSent', { requestId: 'req-1' });
+
+      // After 10ms, finish the request
+      setTimeout(() => {
+        onEventListener?.({ tabId: 5 }, 'Network.loadingFinished', { requestId: 'req-1' });
+      }, 10);
+
+      const result = await promise;
+      expect(result).toBe(true);
+    });
+
+    it('resolves false when request is still pending past maxTimeoutMs', async () => {
+      const promise = cdp.waitForNetworkIdle(5, 50, 60);
+      await new Promise((r) => setTimeout(r, 5));
+
+      // Start a request that never finishes
+      onEventListener?.({ tabId: 5 }, 'Network.requestWillBeSent', { requestId: 'req-hanging' });
+
+      const result = await promise;
+      expect(result).toBe(false);
+    });
+  });
 });

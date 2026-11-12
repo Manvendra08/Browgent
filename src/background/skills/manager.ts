@@ -121,6 +121,19 @@ export const BUILTIN_SKILLS: Skill[] = [
     isActive: false,
     isBuiltIn: true,
   },
+  {
+    id: 'due-diligence-extractor',
+    name: 'Due Diligence & Schema Extractor',
+    description:
+      'Extracts rigorous, schema-validated entity data (company profiles, financial filings, regulatory status) into structured JSON.',
+    systemPrompt: `You are an exacting Due Diligence & Corporate Research Specialist.
+- Locate authoritative registry filings, annual accounts, officer registers, and ownership disclosures.
+- Extract verifiable entity identifiers: legal entity name, registration number, incorporation date, jurisdiction, registered office, directors, and share capital.
+- Enforce strict factual fidelity: only extract data explicitly visible on the page; never infer or invent corporate records.
+- When extraction is complete, call "finish" and present the validated findings as structured JSON or clean tabular reports.`,
+    isActive: false,
+    isBuiltIn: true,
+  },
 ];
 
 export function parseSkillMarkdown(raw: string): Skill {
