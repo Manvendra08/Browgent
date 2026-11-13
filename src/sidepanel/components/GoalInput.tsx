@@ -262,7 +262,7 @@ export const GoalInput: React.FC<GoalInputProps> = ({
     : 'Enter your automation goal... (e.g. Find top 3 products on this page and summarize prices)';
 
   return (
-    <div className="p-2.5 bg-slate-950/90 border-t border-slate-800/80 flex flex-col gap-1.5 relative">
+    <div className="p-2.5 bg-slate-100/90 dark:bg-slate-950/90 border-t border-slate-200 dark:border-slate-800/80 flex flex-col gap-1.5 relative backdrop-blur-md">
       {/* Subtle Google Multi-color Hairline Accent */}
       <div className="h-[1.5px] -mt-2.5 -mx-2.5 mb-1 bg-gradient-to-r from-[#4285F4] via-[#EA4335] via-[#FBBC05] to-[#34A853] opacity-60" />
 
@@ -270,10 +270,10 @@ export const GoalInput: React.FC<GoalInputProps> = ({
       {voiceError && (
         <div
           data-testid="voice-error-banner"
-          className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-rose-950/60 border border-rose-800/80 rounded-lg text-[11px] text-rose-200 shadow-sm animate-fade-in"
+          className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800/80 rounded-lg text-[11px] text-rose-800 dark:text-rose-200 shadow-xs animate-fade-in"
         >
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
-            <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+            <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
             <span className="truncate">{voiceError}</span>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
@@ -289,7 +289,7 @@ export const GoalInput: React.FC<GoalInputProps> = ({
             <button
               type="button"
               onClick={() => setVoiceError(null)}
-              className="text-rose-400 hover:text-rose-200 p-0.5 rounded transition cursor-pointer"
+              className="text-rose-600 dark:text-rose-400 hover:text-rose-800 dark:hover:text-rose-200 p-0.5 rounded transition cursor-pointer"
               aria-label="Dismiss voice error"
             >
               <X className="w-3 h-3" />
@@ -306,23 +306,23 @@ export const GoalInput: React.FC<GoalInputProps> = ({
 
       {/* Main Unified Composer Card */}
       <div
-        className={`bg-slate-900/90 border rounded-xl p-2.5 flex flex-col gap-2 shadow-lg transition ${
+        className={`bg-white/95 dark:bg-slate-900/90 border rounded-xl p-2.5 flex flex-col gap-2 shadow-xs dark:shadow-lg transition ${
           isListening
             ? 'border-rose-500/80 ring-1 ring-rose-500/30'
-            : 'border-slate-800/90 focus-within:border-blue-500/60 focus-within:ring-1 focus-within:ring-blue-500/20'
+            : 'border-slate-300 dark:border-slate-800/90 focus-within:border-blue-500/80 focus-within:ring-2 focus-within:ring-blue-500/20'
         }`}
       >
         {/* Top Segmented Mode Bar */}
         <div className="flex items-center justify-between">
-          <div className="inline-flex items-center bg-slate-950/80 p-0.5 rounded-lg border border-slate-800/80 text-xs">
+          <div className="inline-flex items-center bg-slate-100 dark:bg-slate-950/80 p-0.5 rounded-lg border border-slate-300 dark:border-slate-800/80 text-xs shadow-xs">
             <button
               type="button"
               onClick={() => setMode('ask')}
               aria-pressed={mode === 'ask'}
-              className={`flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer ${
+              className={`flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition cursor-pointer ${
                 mode === 'ask'
-                  ? 'bg-[#34A853] text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-[#137333] dark:bg-[#34A853] text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
               <MessageSquare className="w-3 h-3" />
@@ -332,10 +332,10 @@ export const GoalInput: React.FC<GoalInputProps> = ({
               type="button"
               onClick={() => setMode('agent')}
               aria-pressed={mode === 'agent'}
-              className={`flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer ${
+              className={`flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition cursor-pointer ${
                 mode === 'agent'
-                  ? 'bg-[#4285F4] text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-[#1a73e8] dark:bg-[#4285F4] text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
               <Bot className="w-3 h-3" />
@@ -344,13 +344,13 @@ export const GoalInput: React.FC<GoalInputProps> = ({
           </div>
 
           {isListening ? (
-            <span className="text-[10px] text-rose-400 font-medium flex items-center gap-1 animate-pulse">
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+            <span className="text-[10px] text-rose-600 dark:text-rose-400 font-medium flex items-center gap-1 animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-600 dark:bg-rose-500" />
               Listening...
             </span>
           ) : (
-            <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
-              <kbd className="bg-slate-800 px-1 py-0.5 rounded text-slate-400 text-[9px] border border-slate-700/60">
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono flex items-center gap-1">
+              <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-slate-600 dark:text-slate-400 text-[9px] border border-slate-300 dark:border-slate-700/60 font-medium">
                 Enter
               </kbd>{' '}
               to send
@@ -363,8 +363,8 @@ export const GoalInput: React.FC<GoalInputProps> = ({
           <textarea
             className={`w-full bg-transparent text-xs p-1 pr-12 focus:outline-none resize-none h-18 transition font-sans ${
               isListening
-                ? 'text-rose-100 placeholder-rose-400/70'
-                : 'text-slate-100 placeholder-slate-500'
+                ? 'text-rose-900 dark:text-rose-100 placeholder-rose-600/70 dark:placeholder-rose-400/70'
+                : 'text-slate-900 dark:text-slate-100 placeholder-slate-500'
             }`}
             placeholder={placeholder}
             value={goal}
@@ -377,16 +377,16 @@ export const GoalInput: React.FC<GoalInputProps> = ({
               onClick={() => setGoal('')}
               aria-label="Clear goal input"
               title="Clear input"
-              className="absolute right-6 top-1 text-slate-500 hover:text-slate-300 p-1 rounded transition cursor-pointer"
+              className="absolute right-6 top-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 p-1 rounded transition cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>
           )}
-          <Sparkles className="w-3.5 h-3.5 text-[#4285F4]/60 absolute right-1 top-1 pointer-events-none" />
+          <Sparkles className="w-3.5 h-3.5 text-[#1a73e8]/70 dark:text-[#4285F4]/60 absolute right-1 top-1 pointer-events-none" />
         </div>
 
         {/* Bottom Shelf Toolbar */}
-        <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/60 gap-1.5">
+        <div className="flex items-center justify-between pt-1.5 border-t border-slate-200 dark:border-slate-800/60 gap-1.5">
           <div className="flex items-center gap-1 min-w-0">
             {/* '+' button to attach files/images */}
             {onAttachFile && (
@@ -396,7 +396,7 @@ export const GoalInput: React.FC<GoalInputProps> = ({
                 disabled={isRunning}
                 title="Attach files or images"
                 aria-label="Attach files or images"
-                className="p-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-700/60 transition cursor-pointer flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="p-1 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Plus className="w-3.5 h-3.5" />
               </button>
@@ -410,7 +410,7 @@ export const GoalInput: React.FC<GoalInputProps> = ({
                 disabled={isRunning}
                 title="Attach screenshot of active page"
                 aria-label="Attach screenshot of active page"
-                className="p-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-700/60 transition cursor-pointer flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="p-1 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Camera className="w-3.5 h-3.5" />
               </button>
@@ -425,8 +425,8 @@ export const GoalInput: React.FC<GoalInputProps> = ({
               aria-label={isListening ? 'Stop listening' : 'Voice input'}
               className={`p-1 rounded-md transition cursor-pointer flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed border ${
                 isListening
-                  ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 border-slate-700/60'
+                  ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-300 dark:border-rose-500/40 animate-pulse'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-300 dark:border-slate-700/60'
               }`}
             >
               {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
@@ -438,16 +438,16 @@ export const GoalInput: React.FC<GoalInputProps> = ({
                 type="button"
                 onClick={onOpenSettings}
                 title={`Configured Model: ${modelName} (Click to open settings)`}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-[10px] text-slate-300 font-mono transition cursor-pointer truncate max-w-[130px]"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 border border-slate-300 dark:border-slate-700/60 text-[10px] text-slate-700 dark:text-slate-300 font-mono transition cursor-pointer truncate max-w-[130px]"
               >
-                <Cpu className="w-2.5 h-2.5 text-[#4285F4] shrink-0" />
+                <Cpu className="w-2.5 h-2.5 text-[#1a73e8] dark:text-[#4285F4] shrink-0" />
                 <span className="truncate">{modelName}</span>
               </button>
             )}
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-[9px] text-slate-500 font-mono hidden sm:inline">
+            <span className="text-[9px] text-slate-500 dark:text-slate-400 font-mono hidden sm:inline">
               Shift+Enter for newline
             </span>
 

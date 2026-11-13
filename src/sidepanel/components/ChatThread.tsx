@@ -306,7 +306,7 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                     key={typeof item === 'string' ? item : `${item.label}-${idx}`}
                     type="button"
                     onClick={() => onSuggestionClick?.(promptText)}
-                    className={`group relative flex flex-col justify-between p-2.5 rounded-lg text-slate-300 bg-slate-900/80 border border-slate-800 ${cat.borderHover} hover:shadow-sm transition cursor-pointer`}
+                    className={`group relative flex flex-col justify-between p-2.5 rounded-lg text-slate-800 dark:text-slate-300 bg-white/95 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 ${cat.borderHover} shadow-xs hover:shadow-sm transition cursor-pointer`}
                   >
                     <div className="flex items-center gap-1.5 mb-1.5">
                       {cat.icon}
@@ -314,7 +314,7 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                         {cat.label}
                       </span>
                     </div>
-                    <span className="text-[11px] text-slate-300 group-hover:text-slate-100 transition line-clamp-2 leading-snug">
+                    <span className="text-[11px] text-slate-700 dark:text-slate-300 group-hover:text-slate-950 dark:group-hover:text-slate-100 transition line-clamp-2 leading-snug">
                       {promptText}
                     </span>
                   </button>
@@ -333,29 +333,29 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
           <div key={turn.id} className="space-y-2.5">
             {/* User Prompt Bubble */}
             <div className="flex flex-col items-end group/turn">
-              <div className="max-w-[90%] bg-blue-600/15 border border-blue-500/30 rounded-xl px-3 py-2 text-xs text-slate-100 shadow-sm space-y-1">
-                <div className="flex items-center justify-between gap-3 text-[10px] text-blue-300/80 border-b border-blue-500/20 pb-1 mb-1">
-                  <span className="flex items-center gap-1 font-medium">
-                    <User className="w-3 h-3 text-[#4285F4]" />
+              <div className="max-w-[90%] bg-blue-50/90 dark:bg-blue-600/15 border border-blue-200 dark:border-blue-500/30 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-slate-100 shadow-sm space-y-1">
+                <div className="flex items-center justify-between gap-3 text-[10px] text-blue-800 dark:text-blue-300/80 border-b border-blue-200 dark:border-blue-500/20 pb-1 mb-1">
+                  <span className="flex items-center gap-1 font-semibold text-blue-900 dark:text-blue-300">
+                    <User className="w-3 h-3 text-[#1a73e8] dark:text-[#4285F4]" />
                     You
                   </span>
                   <div className="flex items-center gap-2">
-                    <span className="uppercase text-[9px] font-semibold tracking-wider px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300">
+                    <span className="uppercase text-[9px] font-bold tracking-wider px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-500/20 text-blue-800 dark:text-blue-300 border border-blue-200/60 dark:border-transparent">
                       {turn.mode}
                     </span>
-                    <span className="text-[10px] text-blue-300/60 lowercase">
+                    <span className="text-[10px] text-slate-500 dark:text-blue-300/60 lowercase font-medium">
                       {formatRelativeTime(turn.createdAt)}
                     </span>
-                    <div className="flex items-center gap-1 opacity-70 group-hover/turn:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 opacity-75 group-hover/turn:opacity-100 transition-opacity">
                       <button
                         type="button"
                         onClick={() => handleCopyPrompt(turn.id, turn.prompt)}
                         title="Copy prompt"
                         aria-label="Copy prompt"
-                        className="p-0.5 rounded text-blue-300/70 hover:text-blue-100 hover:bg-blue-500/20 transition cursor-pointer"
+                        className="p-0.5 rounded text-blue-700 dark:text-blue-300/70 hover:text-blue-900 dark:hover:text-blue-100 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition cursor-pointer"
                       >
                         {copiedPromptId === turn.id ? (
-                          <CheckCheck className="w-3 h-3 text-emerald-400" />
+                          <CheckCheck className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                         ) : (
                           <Copy className="w-3 h-3" />
                         )}
@@ -366,7 +366,7 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                           onClick={() => onEditPrompt(turn.prompt)}
                           title="Edit prompt"
                           aria-label="Edit prompt"
-                          className="p-0.5 rounded text-blue-300/70 hover:text-blue-100 hover:bg-blue-500/20 transition cursor-pointer"
+                          className="p-0.5 rounded text-blue-700 dark:text-blue-300/70 hover:text-blue-900 dark:hover:text-blue-100 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition cursor-pointer"
                         >
                           <Pencil className="w-3 h-3" />
                         </button>
@@ -378,7 +378,7 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                           disabled={isRunning}
                           title="Retry prompt"
                           aria-label="Retry prompt"
-                          className="p-0.5 rounded text-blue-300/70 hover:text-blue-100 hover:bg-blue-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                          className="p-0.5 rounded text-blue-700 dark:text-blue-300/70 hover:text-blue-900 dark:hover:text-blue-100 hover:bg-blue-100 dark:hover:bg-blue-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
                         >
                           <RotateCcw className="w-3 h-3" />
                         </button>
@@ -387,13 +387,13 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                   </div>
                 </div>
 
-                <p className="whitespace-pre-wrap leading-relaxed text-[11px] text-slate-200">
+                <p className="whitespace-pre-wrap leading-relaxed text-[11px] text-slate-900 dark:text-slate-200 font-normal">
                   {turn.prompt}
                 </p>
 
                 {turn.tab && (turn.tab.title || turn.tab.url) && (
-                  <div className="pt-1 flex items-center gap-1 text-[10px] text-blue-300/80 truncate">
-                    <Globe className="w-2.5 h-2.5 shrink-0 opacity-70" />
+                  <div className="pt-1 flex items-center gap-1 text-[10px] text-blue-700 dark:text-blue-300/80 truncate font-medium">
+                    <Globe className="w-2.5 h-2.5 shrink-0 text-blue-600 dark:text-blue-400" />
                     <span className="truncate max-w-[220px]">
                       {turn.tab.title || turn.tab.url}
                     </span>
@@ -404,11 +404,11 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
 
             {/* Agent Work Steps (collapsible) */}
             {turn.mode === 'agent' && turn.steps.length > 0 && (
-              <div className="bg-slate-900/40 border border-slate-800/80 rounded-lg p-2 text-xs">
+              <div className="bg-slate-50/90 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800/80 rounded-lg p-2 text-xs">
                 <button
                   type="button"
                   onClick={() => toggleSteps(turn.id)}
-                  className="w-full flex items-center justify-between gap-1 text-slate-400 hover:text-slate-200 transition py-0.5 cursor-pointer"
+                  className="w-full flex items-center justify-between gap-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition py-0.5 cursor-pointer"
                 >
                   <div className="flex items-center gap-1.5 font-medium text-[11px]">
                     {isStepsOpen ? (
@@ -420,16 +420,16 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                       Worked for {turn.steps.length} {turn.steps.length === 1 ? 'step' : 'steps'}
                     </span>
                     {turn.status === 'running' && (
-                      <Loader2 className="w-3 h-3 text-[#4285F4] animate-spin ml-1" />
+                      <Loader2 className="w-3 h-3 text-[#1a73e8] dark:text-[#4285F4] animate-spin ml-1" />
                     )}
                   </div>
-                  <span className="text-[10px] text-slate-500">
+                  <span className="text-[10px] text-slate-500 font-medium">
                     {isStepsOpen ? 'Hide' : 'Show details'}
                   </span>
                 </button>
 
                 {isStepsOpen && (
-                  <div className="mt-2 pt-2 border-t border-slate-800/60">
+                  <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-800/60">
                     <StepList items={turn.steps} />
                   </div>
                 )}
@@ -438,8 +438,8 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
 
             {/* Running Indicator (when no steps yet or actively thinking) */}
             {turn.status === 'running' && turn.steps.length === 0 && (
-              <div className="flex items-center gap-2 py-1.5 px-2 text-slate-400 text-xs animate-pulse">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#4285F4]" />
+              <div className="flex items-center gap-2 py-1.5 px-2 text-slate-600 dark:text-slate-400 text-xs animate-pulse">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1a73e8] dark:text-[#4285F4]" />
                 <span className="text-[11px]">
                   {turn.mode === 'ask'
                     ? 'Browgent is reading this page...'
@@ -450,10 +450,10 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
 
             {/* Completed Summary / Result Card */}
             {turn.result && (
-              <div className="bg-slate-800/80 border border-slate-700/60 rounded-xl p-3 text-xs shadow-sm space-y-1.5">
-                <div className="flex items-center justify-between pb-1 border-b border-slate-700/50">
-                  <div className="flex items-center gap-1.5 font-semibold text-blue-300 text-[11px]">
-                    <Bot className="w-3.5 h-3.5 text-[#4285F4]" />
+              <div className="bg-white/95 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 rounded-xl p-3 text-xs shadow-sm space-y-1.5">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-200 dark:border-slate-700/50">
+                  <div className="flex items-center gap-1.5 font-bold text-blue-700 dark:text-blue-300 text-[11px]">
+                    <Bot className="w-3.5 h-3.5 text-[#1a73e8] dark:text-[#4285F4]" />
                     <span>Browgent</span>
                   </div>
                   <div className="flex items-center gap-1">
@@ -463,9 +463,9 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                         onClick={() => handleExportCSV(turn.id, turn.result!)}
                         title="Export table as CSV"
                         aria-label="Export table as CSV"
-                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-emerald-400 hover:text-emerald-300 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-800/60 transition cursor-pointer"
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-300 dark:border-emerald-800/60 transition cursor-pointer font-medium"
                       >
-                        <FileSpreadsheet className="w-3 h-3 text-emerald-400" />
+                        <FileSpreadsheet className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                         <span>CSV</span>
                       </button>
                     )}
@@ -474,9 +474,9 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                       onClick={() => handleExportMarkdown(turn.id, turn.result!)}
                       title="Download as Markdown"
                       aria-label="Download as Markdown"
-                      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-slate-400 hover:text-slate-200 bg-slate-900/60 hover:bg-slate-900 border border-slate-700/60 transition cursor-pointer"
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 bg-slate-100 dark:bg-slate-900/60 hover:bg-slate-200 dark:hover:bg-slate-900 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer font-medium"
                     >
-                      <Download className="w-3 h-3 text-slate-400" />
+                      <Download className="w-3 h-3 text-slate-500 dark:text-slate-400" />
                       <span>MD</span>
                     </button>
                     <button
@@ -484,9 +484,9 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                       onClick={() => handleExportDossier(turn)}
                       title="Export Executive Dossier (HTML / Printable PDF)"
                       aria-label="Export Executive Dossier"
-                      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-indigo-400 hover:text-indigo-300 bg-indigo-950/40 hover:bg-indigo-900/60 border border-indigo-800/60 transition cursor-pointer"
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-indigo-700 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-300 dark:border-indigo-800/60 transition cursor-pointer font-medium"
                     >
-                      <FileText className="w-3 h-3 text-indigo-400" />
+                      <FileText className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
                       <span>Dossier</span>
                     </button>
                     <button
@@ -494,18 +494,18 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                       onClick={() => handleCopy(turn.id, turn.result!)}
                       title="Copy response"
                       aria-label="Copy response"
-                      className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-slate-400 hover:text-slate-200 bg-slate-900/60 hover:bg-slate-900 border border-slate-700/60 transition cursor-pointer"
+                      className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 bg-slate-100 dark:bg-slate-900/60 hover:bg-slate-200 dark:hover:bg-slate-900 border border-slate-300 dark:border-slate-700/60 transition cursor-pointer font-medium"
                     >
                       {copiedTurnId === turn.id ? (
-                        <CheckCheck className="w-3 h-3 text-emerald-400" />
+                        <CheckCheck className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                       ) : (
-                        <Copy className="w-3 h-3 text-slate-400" />
+                        <Copy className="w-3 h-3 text-slate-500 dark:text-slate-400" />
                       )}
                       <span>{copiedTurnId === turn.id ? 'Copied' : 'Copy'}</span>
                     </button>
                   </div>
                 </div>
-                <Markdown content={turn.result} className="text-slate-200 text-[11px] leading-relaxed" />
+                <Markdown content={turn.result} className="text-slate-900 dark:text-slate-200 text-[11px] leading-relaxed" />
               </div>
             )}
 

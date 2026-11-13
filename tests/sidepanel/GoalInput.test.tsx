@@ -160,10 +160,7 @@ describe('GoalInput Voice Dictation', () => {
   });
 
   it('streams real-time speech transcript into textarea as user speaks', async () => {
-    let capturedGoal = '';
-    const setGoal = vi.fn((val: string) => {
-      capturedGoal = val;
-    });
+    const setGoal = vi.fn();
 
     render(
       <GoalInput

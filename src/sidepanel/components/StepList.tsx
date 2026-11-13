@@ -105,31 +105,31 @@ export const StepList: React.FC<StepListProps> = ({ items }) => {
         return (
           <div
             key={item.id}
-            className={`border rounded-lg p-2.5 text-xs shadow-sm transition ${
+            className={`border rounded-lg p-2.5 text-xs shadow-xs transition ${
               item.status === 'running'
-                ? 'border-blue-500/60 shimmer-running shadow-blue-500/10'
-                : 'bg-slate-800/70 border-slate-700/60 hover:border-slate-600/80'
+                ? 'border-blue-400 dark:border-blue-500/60 shimmer-running shadow-blue-500/10'
+                : 'bg-white/95 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600/80'
             }`}
           >
             {/* Step Header */}
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-slate-300 text-[11px]">Step {item.step}</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-300 text-[11px]">Step {item.step}</span>
                 {item.status === 'running' && (
-                  <Loader2 className="w-3 h-3 text-indigo-400 animate-spin" />
+                  <Loader2 className="w-3 h-3 text-indigo-600 dark:text-indigo-400 animate-spin" />
                 )}
-                {item.status === 'success' && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
-                {item.status === 'error' && <AlertCircle className="w-3 h-3 text-rose-400" />}
+                {item.status === 'success' && <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />}
+                {item.status === 'error' && <AlertCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" />}
                 {item.timings && (
                   <span
-                    className="text-[10px] text-slate-400 font-mono bg-slate-900/80 px-1.5 py-0.2 rounded border border-slate-700/60 cursor-help"
+                    className="text-[10px] text-slate-600 dark:text-slate-400 font-mono bg-slate-100 dark:bg-slate-900/80 px-1.5 py-0.2 rounded border border-slate-200 dark:border-slate-700/60 cursor-help font-medium"
                     title={`DOM: ${item.timings.domMs}ms | Shot: ${item.timings.screenshotMs}ms | LLM: ${item.timings.llmMs}ms | Action: ${item.timings.actionMs}ms | Settle: ${item.timings.settleMs}ms`}
                   >
                     {(item.timings.totalMs / 1000).toFixed(1)}s (LLM {(item.timings.llmMs / 1000).toFixed(1)}s)
                   </span>
                 )}
               </div>
-              <span className="text-[10px] text-slate-400">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
                 {new Date(item.timestamp).toLocaleTimeString([], {
                   hour: '2-digit',
                   minute: '2-digit',
@@ -145,7 +145,7 @@ export const StepList: React.FC<StepListProps> = ({ items }) => {
                   <button
                     type="button"
                     onClick={() => toggleThought(item.id)}
-                    className="flex items-center gap-1 text-[11px] text-indigo-300 font-medium hover:text-indigo-200 transition shrink-0 cursor-pointer"
+                    className="flex items-center gap-1 text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold hover:text-indigo-900 dark:hover:text-indigo-200 transition shrink-0 cursor-pointer"
                   >
                     {isExpanded ? (
                       <ChevronDown className="w-3 h-3" />
@@ -155,13 +155,13 @@ export const StepList: React.FC<StepListProps> = ({ items }) => {
                     Thinking
                   </button>
                   {!isExpanded && (
-                    <span className="text-[10px] text-slate-400 italic truncate max-w-[200px] select-none">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 italic truncate max-w-[200px] select-none font-medium">
                       {item.thought}
                     </span>
                   )}
                 </div>
                 {isExpanded && (
-                  <p className="mt-1 text-[11px] text-slate-300 bg-slate-900/60 p-2 rounded border border-slate-800/80 leading-relaxed font-mono whitespace-pre-wrap">
+                  <p className="mt-1 text-[11px] text-slate-900 dark:text-slate-300 bg-slate-100/90 dark:bg-slate-900/60 p-2 rounded border border-slate-200 dark:border-slate-800/80 leading-relaxed font-mono whitespace-pre-wrap">
                     {item.thought}
                   </p>
                 )}

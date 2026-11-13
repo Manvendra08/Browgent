@@ -880,14 +880,14 @@ export const App: React.FC = () => {
       />
 
       {/* Top Header */}
-      <header className="flex items-center justify-between px-3.5 py-2 min-h-[40px] bg-slate-950/80 border-b border-slate-800">
+      <header className="flex items-center justify-between px-3.5 py-2 min-h-[40px] bg-white/95 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 backdrop-blur-md sticky top-0 z-10">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-gradient-to-tr from-[#4285F4] via-[#EA4335] to-[#FBBC05] flex items-center justify-center shadow-md">
+          <div className="w-6 h-6 rounded-md bg-gradient-to-tr from-[#4285F4] via-[#EA4335] to-[#FBBC05] flex items-center justify-center shadow-xs">
             <Bot className="w-4 h-4 text-white" />
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="font-bold text-xs tracking-tight text-slate-200">Browgent</span>
-            <span className="text-[9px] font-semibold uppercase px-1.5 py-0.2 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
+            <span className="font-bold text-xs tracking-tight text-slate-900 dark:text-slate-100">Browgent</span>
+            <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 rounded bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30">
               v0.6.0
             </span>
             <span
@@ -909,7 +909,7 @@ export const App: React.FC = () => {
             onClick={handleNewChat}
             title="New chat"
             aria-label="New chat"
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+            className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
@@ -919,7 +919,7 @@ export const App: React.FC = () => {
             onClick={() => setIsHistoryOpen(true)}
             title="Chat history"
             aria-label="Chat history"
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+            className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
           >
             <Clock className="w-3.5 h-3.5" />
           </button>
@@ -930,7 +930,7 @@ export const App: React.FC = () => {
             title={theme === 'dark' ? 'Switch to day mode' : 'Switch to night mode'}
             aria-label={theme === 'dark' ? 'Switch to day mode' : 'Switch to night mode'}
             aria-pressed={theme === 'light'}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+            className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
           >
             {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
           </button>
@@ -940,7 +940,7 @@ export const App: React.FC = () => {
             onClick={() => setIsSettingsOpen(true)}
             title="Settings"
             aria-label="Open settings"
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+            className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
           >
             <Settings className="w-3.5 h-3.5" />
           </button>
@@ -979,31 +979,31 @@ export const App: React.FC = () => {
       {pendingApproval && (
         <div
           data-testid="approval-gate-card"
-          className="mx-3 my-2 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10 dark:bg-amber-950/30 shadow-sm animate-in fade-in"
+          className="mx-3 my-2 p-3 rounded-lg border border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-950/30 shadow-xs animate-in fade-in"
         >
           <div className="flex items-start gap-2.5">
-            <div className="p-1.5 rounded-full bg-amber-500/20 text-amber-500 flex-shrink-0 mt-0.5">
+            <div className="p-1.5 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-500 flex-shrink-0 mt-0.5">
               <AlertTriangle className="w-4 h-4" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+              <div className="text-xs font-bold text-amber-800 dark:text-amber-400">
                 Action Approval Required (Step {pendingApproval.step})
               </div>
-              <p className="text-xs text-neutral-700 dark:text-neutral-300 mt-0.5 break-words">
+              <p className="text-xs text-slate-800 dark:text-neutral-300 mt-0.5 break-words">
                 {pendingApproval.reason}
               </p>
               <div className="flex items-center gap-2 mt-2.5">
                 <button
                   type="button"
                   onClick={handleApproveAction}
-                  className="px-3 py-1 text-xs font-medium rounded bg-amber-600 hover:bg-amber-700 text-white transition-colors cursor-pointer"
+                  className="px-3 py-1 text-xs font-semibold rounded bg-amber-600 hover:bg-amber-700 text-white transition-colors cursor-pointer shadow-xs"
                 >
                   Approve Action
                 </button>
                 <button
                   type="button"
                   onClick={handleRejectAction}
-                  className="px-3 py-1 text-xs font-medium rounded border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
+                  className="px-3 py-1 text-xs font-semibold rounded border border-slate-300 dark:border-neutral-700 hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-neutral-300 transition-colors cursor-pointer"
                 >
                   Reject
                 </button>
