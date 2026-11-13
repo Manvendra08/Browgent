@@ -578,4 +578,70 @@ describe('background service worker', () => {
     resolveRun1({ success: false });
     resolveRun2({ success: true, summary: 'Tab 2 finished' });
   });
+
+  it('tracks background missions across tabs and broadcasts MISSIONS_UPDATE', async () => {
+    let resolveRun: (val: unknown) => void = () => {};
+    runMock.mockImplementationOnce(() => new Promise((resolve) => { resolveRun = resolve; }));
+
+    getMock.mockImplementation(async (id: number) => ({
+      id,
+      url: `https://example.com/test-tab`,
+      title: 'Mission Tab',
+      status: 'complete',
+    }));
+
+    const port = makePort('browgent-sidepanel-30');
+    connectListener(port);
+    const handler = port.onMessage.addListener.mock.calls[0][0] as (m: unknown) => Promise<void>;
+
+    void handler({
+      type: 'START_AGENT',
+      payload: { tabId: 30, goal: 'Investigate quarterly filings', llmConfig: { provider: 'omniroute' } },
+    });
+
+    await vi.waitFor(() => expect(runMock).toHaveBeenCalledTimes(1));
+
+    // Check MISSIONS_UPDATE was received
+    const missionUpdates = lastPortStatus(port, 'MISSIONS_UPDATE') as Array<{
+      type: string;
+      missions: Array<{ tabId: number; status: string; goal: string; title: string }>;
+    }>;
+    expect(missionUpdates.length).toBeGreaterThan(0);
+    const latest = missionUpdates[missionUpdates.length - 1];
+    expect(latest.missions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tabId: 30,
+          status: 'running',
+          goal: 'Investigate quarterly filings',
+          title: 'Mission Tab',
+        }),
+      ]),
+    );
+
+    // Test GET_MISSIONS explicitly
+    await handler({ type: 'GET_MISSIONS' });
+    const getMissionsCall = (lastPortStatus(port, 'MISSIONS_UPDATE') as Array<{
+      type: string;
+      missions: Array<{ tabId: number }>;
+    }>).at(-1);
+    expect(getMissionsCall?.missions.some((m) => m.tabId === 30)).toBe(true);
+
+    // Resolve run to complete
+    resolveRun({ success: true, summary: 'Investigation complete' });
+    await vi.waitFor(() => {
+      const completedUpdates = lastPortStatus(port, 'MISSIONS_UPDATE') as Array<{
+        missions: Array<{ tabId: number; status: string }>;
+      }>;
+      const found = completedUpdates.find((u) => u.missions.some((m) => m.tabId === 30 && m.status === 'completed'));
+      expect(found).toBeDefined();
+    });
+
+    // Test DISMISS_MISSION
+    await handler({ type: 'DISMISS_MISSION', payload: { tabId: 30 } });
+    const afterDismiss = (lastPortStatus(port, 'MISSIONS_UPDATE') as Array<{
+      missions: Array<{ tabId: number }>;
+    }>).at(-1);
+    expect(afterDismiss?.missions.some((m) => m.tabId === 30)).toBe(false);
+  });
 });

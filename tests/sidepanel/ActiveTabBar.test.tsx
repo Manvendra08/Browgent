@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { ActiveTabBar } from '../../src/sidepanel/components/ActiveTabBar';
+import { TabAgentMission } from '../../src/background/types';
 
 describe('ActiveTabBar', () => {
   it('renders the active tab title and domain', () => {
@@ -33,5 +34,81 @@ describe('ActiveTabBar', () => {
   it('falls back gracefully with no tab info', () => {
     render(<ActiveTabBar tab={null} />);
     expect(screen.getByText('Untitled page')).toBeTruthy();
+  });
+
+  it('renders tab mission control pills for background agent tabs', () => {
+    const onSelectTab = vi.fn();
+    const onDismissMission = vi.fn();
+
+    const mockMissions: TabAgentMission[] = [
+      {
+        tabId: 101,
+        title: 'Wikipedia Article',
+        url: 'https://en.wikipedia.org/wiki/Browser',
+        status: 'running',
+        goal: 'Read article summary',
+        mode: 'agent',
+        step: 4,
+        maxSteps: 10,
+        startTime: Date.now() - 5000,
+      },
+      {
+        tabId: 102,
+        title: 'Form Submission',
+        url: 'https://example.com/form',
+        status: 'waiting_approval',
+        goal: 'Submit form data',
+        mode: 'agent',
+        step: 2,
+        maxSteps: 5,
+        startTime: Date.now() - 3000,
+      },
+      {
+        tabId: 103,
+        title: 'Completed Search',
+        url: 'https://google.com',
+        status: 'completed',
+        goal: 'Find documentation',
+        mode: 'agent',
+        step: 5,
+        maxSteps: 5,
+        startTime: Date.now() - 10000,
+        endTime: Date.now(),
+      },
+    ];
+
+    render(
+      <ActiveTabBar
+        tab={{ id: 101, title: 'Wikipedia Article', url: 'https://en.wikipedia.org/wiki/Browser' }}
+        missions={mockMissions}
+        currentTabId={101}
+        onSelectTab={onSelectTab}
+        onDismissMission={onDismissMission}
+      />,
+    );
+
+    // Verify Mission Control bar is rendered
+    expect(screen.getByTestId('mission-control-bar')).toBeTruthy();
+    expect(screen.getByText('Missions')).toBeTruthy();
+
+    // Verify step counter on running tab
+    expect(screen.getByText('4/10')).toBeTruthy();
+    expect(screen.getAllByText('Wikipedia Article').length).toBe(2);
+
+    // Verify approval badge on waiting tab
+    expect(screen.getByText('Approval')).toBeTruthy();
+    expect(screen.getByText('Form Submission')).toBeTruthy();
+
+    // Verify completed tab
+    expect(screen.getByText('Completed Search')).toBeTruthy();
+
+    // Click on tab 102 to switch
+    fireEvent.click(screen.getByText('Form Submission'));
+    expect(onSelectTab).toHaveBeenCalledWith(102);
+
+    // Click dismiss on completed tab 103
+    const dismissBtn = screen.getByLabelText('Dismiss mission for tab 103');
+    fireEvent.click(dismissBtn);
+    expect(onDismissMission).toHaveBeenCalledWith(103);
   });
 });

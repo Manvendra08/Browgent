@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Settings, Bot, Sun, Moon, Plus, Clock, AlertTriangle } from 'lucide-react';
 import { LLMConfig } from '../background/llm/types';
-import { AgentAction } from '../background/types';
+import { AgentAction, TabAgentMission } from '../background/types';
 import { Skill } from '../background/skills/types';
 import { BUILTIN_SKILLS, loadStoredSkills, saveStoredSkills } from '../background/skills/manager';
 import { AttachedFile } from '../background/files/parser';
@@ -86,6 +86,7 @@ export const App: React.FC = () => {
   // Live active tab (for display) + the tab the agent is operating on (while running)
   const [activeTab, setActiveTab] = useState<ActiveTabInfo | null>(null);
   const [agentTab, setAgentTab] = useState<ActiveTabInfo | null>(null);
+  const [missions, setMissions] = useState<TabAgentMission[]>([]);
   const [customStarters, setCustomStarters] = useState<Record<string, ContextualStarter[]>>({});
   const [isGeneratingStarters, setIsGeneratingStarters] = useState<boolean>(false);
   const [pendingApproval, setPendingApproval] = useState<{
@@ -254,6 +255,10 @@ export const App: React.FC = () => {
           }
         }
 
+        if (msg.type === 'MISSIONS_UPDATE') {
+          setMissions(Array.isArray(msg.missions) ? msg.missions : []);
+        }
+
         if (msg.type === 'AGENT_EVENT') {
           const event = msg.event;
           if (event.type === 'approval_requested') {
@@ -356,6 +361,12 @@ export const App: React.FC = () => {
         console.log('[Sidepanel] Port disconnected.');
         portRef.current = null;
       });
+
+      try {
+        port.postMessage({ type: 'GET_MISSIONS' });
+      } catch {
+        // Ignore
+      }
 
       return port;
     } catch (err: unknown) {
@@ -806,6 +817,47 @@ export const App: React.FC = () => {
     setPendingApproval(null);
   };
 
+  const handleSelectMissionTab = React.useCallback(
+    async (tabId: number) => {
+      setBoundTabId(tabId);
+      if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.update === 'function') {
+        try {
+          await chrome.tabs.update(tabId, { active: true });
+        } catch {
+          // Tab may not exist or be transient
+        }
+      }
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.session && typeof chrome.storage.session.get === 'function') {
+        try {
+          const res = await chrome.storage.session.get([`browgent_tab_thread_${tabId}`]);
+          const threadId = res?.[`browgent_tab_thread_${tabId}`];
+          if (typeof threadId === 'string') {
+            setActiveThreadId(threadId);
+          }
+        } catch {
+          // Ignore
+        }
+      }
+      refreshActiveTab();
+    },
+    [refreshActiveTab],
+  );
+
+  const handleDismissMission = React.useCallback(
+    (tabId: number) => {
+      setMissions((prev) => prev.filter((m) => m.tabId !== tabId));
+      const port = getOrCreatePort();
+      if (port) {
+        try {
+          port.postMessage({ type: 'DISMISS_MISSION', payload: { tabId } });
+        } catch {
+          // Ignore
+        }
+      }
+    },
+    [getOrCreatePort],
+  );
+
   const handleNewChat = () => {
     setPendingApproval(null);
     updateTabActiveThread(null);
@@ -978,6 +1030,10 @@ export const App: React.FC = () => {
           <ActiveTabBar
             tab={status === 'running' && agentTab ? agentTab : activeTab}
             isAgentTarget={status === 'running' && agentTab !== null}
+            missions={missions}
+            currentTabId={boundTabId ?? activeTab?.id}
+            onSelectTab={handleSelectMissionTab}
+            onDismissMission={handleDismissMission}
           />
         }
         filesComponent={

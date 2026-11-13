@@ -2,6 +2,7 @@ import { AgentController } from './agent';
 import { LLMConfig } from './llm/types';
 import { Skill } from './skills/types';
 import { AttachedFile } from './files/parser';
+import { TabAgentMission } from './types';
 import {
   isRestrictedUrl,
   isNewTabPage,
@@ -15,6 +16,21 @@ let activeAgents = new Map<number, AgentController>();
 let sidepanelPorts = new Map<number, chrome.runtime.Port>();
 let allConnectedPorts = new Set<chrome.runtime.Port>();
 const activePanelTabs = new Set<number>();
+const tabMissions = new Map<number, TabAgentMission>();
+
+const broadcastMissions = () => {
+  const missions = Array.from(tabMissions.values());
+  for (const port of Array.from(allConnectedPorts)) {
+    try {
+      port.postMessage({ type: 'MISSIONS_UPDATE', missions });
+    } catch {
+      allConnectedPorts.delete(port);
+      for (const [tabId, p] of sidepanelPorts.entries()) {
+        if (p === port) sidepanelPorts.delete(tabId);
+      }
+    }
+  }
+};
 
 const syncActivePanelTabs = () => {
   if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.session && typeof chrome.storage.session.set === 'function') {
@@ -253,6 +269,10 @@ if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onRemoved) {
       agent.stop();
       activeAgents.delete(tabId);
     }
+    if (tabMissions.has(tabId)) {
+      tabMissions.delete(tabId);
+      broadcastMissions();
+    }
     sidepanelPorts.delete(tabId);
     if (chrome.sidePanel && typeof chrome.sidePanel.setOptions === 'function') {
       chrome.sidePanel.setOptions({ tabId, enabled: false }).catch(() => {});
@@ -426,6 +446,20 @@ chrome.runtime.onConnect.addListener((port) => {
         });
         activeAgents.set(tabId, agent);
 
+        tabMissions.set(tabId, {
+          tabId,
+          title: tabTitle || `Tab ${tabId}`,
+          url: currentUrl,
+          favIconUrl: tabFavIconUrl,
+          status: 'running',
+          goal,
+          mode: mode || 'agent',
+          step: 0,
+          maxSteps: maxSteps || 25,
+          startTime: Date.now(),
+        });
+        broadcastMissions();
+
         port.postMessage({
           type: 'STATUS_UPDATE',
           status: 'running',
@@ -450,6 +484,29 @@ chrome.runtime.onConnect.addListener((port) => {
               | 'approval_requested';
             data?: unknown;
           }) => {
+            const mission = tabMissions.get(tabId);
+            if (mission) {
+              if (event.type === 'step') {
+                const stepData = event.data as { step?: number; stepNumber?: number } | undefined;
+                if (stepData?.step !== undefined) {
+                  mission.step = stepData.step;
+                } else if (stepData?.stepNumber !== undefined) {
+                  mission.step = stepData.stepNumber;
+                }
+                broadcastMissions();
+              } else if (event.type === 'thought') {
+                const thoughtText = typeof event.data === 'string'
+                  ? event.data
+                  : (event.data as { thought?: string } | undefined)?.thought;
+                if (thoughtText) {
+                  mission.lastThought = thoughtText;
+                  broadcastMissions();
+                }
+              } else if (event.type === 'approval_requested') {
+                mission.status = 'waiting_approval';
+                broadcastMissions();
+              }
+            }
             port.postMessage({ type: 'AGENT_EVENT', event });
           };
 
@@ -457,6 +514,14 @@ chrome.runtime.onConnect.addListener((port) => {
             mode === 'ask'
               ? await agent.answer(tabId, goal, onProgressCb)
               : await agent.run(tabId, goal, onProgressCb);
+
+          const mission = tabMissions.get(tabId);
+          if (mission) {
+            mission.status = result.success ? 'completed' : 'failed';
+            mission.endTime = Date.now();
+            if (result.error) mission.error = result.error;
+            broadcastMissions();
+          }
 
           port.postMessage({
             type: 'FINISHED',
@@ -466,6 +531,13 @@ chrome.runtime.onConnect.addListener((port) => {
           });
         } catch (err: unknown) {
           const msgStr = err instanceof Error ? err.message : String(err);
+          const mission = tabMissions.get(tabId);
+          if (mission) {
+            mission.status = 'failed';
+            mission.endTime = Date.now();
+            mission.error = msgStr;
+            broadcastMissions();
+          }
           port.postMessage({ type: 'ERROR', error: msgStr });
         } finally {
           activeAgents.delete(tabId);
@@ -481,6 +553,13 @@ chrome.runtime.onConnect.addListener((port) => {
         if (agent) {
           agent.resolveApproval(true);
         }
+        if (typeof targetTabId === 'number') {
+          const mission = tabMissions.get(targetTabId);
+          if (mission && mission.status === 'waiting_approval') {
+            mission.status = 'running';
+            broadcastMissions();
+          }
+        }
       }
 
       if (msg.type === 'REJECT_ACTION') {
@@ -491,6 +570,13 @@ chrome.runtime.onConnect.addListener((port) => {
             : activeAgents.values().next().value;
         if (agent) {
           agent.resolveApproval(false);
+        }
+        if (typeof targetTabId === 'number') {
+          const mission = tabMissions.get(targetTabId);
+          if (mission && mission.status === 'waiting_approval') {
+            mission.status = 'running';
+            broadcastMissions();
+          }
         }
       }
 
@@ -503,6 +589,12 @@ chrome.runtime.onConnect.addListener((port) => {
             activeAgents.delete(targetTabId);
             port.postMessage({ type: 'STATUS_UPDATE', status: 'stopped' });
           }
+          const mission = tabMissions.get(targetTabId);
+          if (mission) {
+            mission.status = 'stopped';
+            mission.endTime = Date.now();
+            broadcastMissions();
+          }
         } else {
           // If no specific tab identified, stop any active agent
           let stoppedAny = false;
@@ -510,10 +602,31 @@ chrome.runtime.onConnect.addListener((port) => {
             agent.stop();
             activeAgents.delete(id);
             stoppedAny = true;
+            const mission = tabMissions.get(id);
+            if (mission) {
+              mission.status = 'stopped';
+              mission.endTime = Date.now();
+            }
           }
           if (stoppedAny) {
             port.postMessage({ type: 'STATUS_UPDATE', status: 'stopped' });
+            broadcastMissions();
           }
+        }
+      }
+
+      if (msg.type === 'GET_MISSIONS') {
+        port.postMessage({
+          type: 'MISSIONS_UPDATE',
+          missions: Array.from(tabMissions.values()),
+        });
+      }
+
+      if (msg.type === 'DISMISS_MISSION') {
+        const targetId = (msg.payload as { tabId?: number } | undefined)?.tabId ?? (msg as { tabId?: number }).tabId;
+        if (typeof targetId === 'number') {
+          tabMissions.delete(targetId);
+          broadcastMissions();
         }
       }
     });

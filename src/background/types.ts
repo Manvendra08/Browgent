@@ -114,3 +114,21 @@ export interface StepTimings {
   actionMs: number;
   settleMs: number;
 }
+
+export type MissionStatus = 'running' | 'completed' | 'failed' | 'stopped' | 'waiting_approval';
+
+export interface TabAgentMission {
+  tabId: number;
+  title: string;
+  url: string;
+  favIconUrl?: string;
+  status: MissionStatus;
+  goal: string;
+  mode: 'ask' | 'agent';
+  step: number;
+  maxSteps: number;
+  startTime: number;
+  endTime?: number;
+  lastThought?: string;
+  error?: string;
+}

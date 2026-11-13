@@ -25,6 +25,7 @@ import { Turn } from '../threads';
 import { StepList } from './StepList';
 import { Markdown } from './Markdown';
 import { ContextualStarter } from '../starters';
+import { generateExecutiveDossierHtml } from '../dossier';
 
 interface ChatThreadProps {
   turns: Turn[];
@@ -232,6 +233,11 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
 
   const handleExportMarkdown = (turnId: string, text: string) => {
     downloadTextFile(`browgent-summary-${turnId.slice(0, 8)}.md`, text, 'text/markdown');
+  };
+
+  const handleExportDossier = (turn: Turn) => {
+    const html = generateExecutiveDossierHtml(turn);
+    downloadTextFile(`browgent-dossier-${turn.id.slice(0, 8)}.html`, html, 'text/html');
   };
 
   const handleExportCSV = (turnId: string, text: string) => {
@@ -472,6 +478,16 @@ export const ChatThread: React.FC<ChatThreadProps> = ({
                     >
                       <Download className="w-3 h-3 text-slate-400" />
                       <span>MD</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportDossier(turn)}
+                      title="Export Executive Dossier (HTML / Printable PDF)"
+                      aria-label="Export Executive Dossier"
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-indigo-400 hover:text-indigo-300 bg-indigo-950/40 hover:bg-indigo-900/60 border border-indigo-800/60 transition cursor-pointer"
+                    >
+                      <FileText className="w-3 h-3 text-indigo-400" />
+                      <span>Dossier</span>
                     </button>
                     <button
                       type="button"
