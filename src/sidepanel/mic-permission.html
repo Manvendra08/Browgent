@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Browgent — Enable Microphone Access</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        background-color: #0f172a;
+        color: #f8fafc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+      .card {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 12px;
+        padding: 32px;
+        max-width: 480px;
+        width: 90%;
+        text-align: center;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4);
+      }
+      .icon-container {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background: rgba(66, 133, 244, 0.15);
+        border: 2px solid #4285F4;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 20px auto;
+        color: #4285F4;
+      }
+      h1 {
+        font-size: 20px;
+        font-weight: 700;
+        margin-bottom: 12px;
+        color: #ffffff;
+      }
+      p {
+        font-size: 13px;
+        color: #94a3b8;
+        line-height: 1.6;
+        margin-bottom: 24px;
+      }
+      .btn {
+        background: #2563eb;
+        color: #ffffff;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.15s ease;
+      }
+      .btn:hover {
+        background: #1d4ed8;
+      }
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .status {
+        margin-top: 20px;
+        font-size: 13px;
+        display: none;
+      }
+      .status.success {
+        display: block;
+        color: #34d399;
+      }
+      .status.error {
+        display: block;
+        color: #f87171;
+      }
+      .subtext {
+        margin-top: 16px;
+        font-size: 11px;
+        color: #64748b;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="icon-container" id="icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" x2="12" y1="19" y2="22"/>
+        </svg>
+      </div>
+
+      <h1 id="title">Enable Voice Dictation</h1>
+      <p id="desc">
+        Chrome requires a one-time permission grant for Browgent to access your microphone for voice input. Click below and select <strong>Allow</strong> when prompted.
+      </p>
+
+      <button id="auth-btn" class="btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" x2="12" y1="19" y2="22"/>
+        </svg>
+        Allow Microphone Access
+      </button>
+
+      <div id="status-msg" class="status"></div>
+      <div class="subtext">Browgent only accesses the microphone when you explicitly click the mic icon. Audio is not saved or shared.</div>
+    </div>
+
+    <script type="module" src="./mic-permission.ts"></script>
+  </body>
+</html>

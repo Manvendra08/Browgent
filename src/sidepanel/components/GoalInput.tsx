@@ -1,5 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Square, Sparkles, X, MessageSquare, Bot, Cpu, Plus, Camera, Mic, MicOff } from 'lucide-react';
+import {
+  Play,
+  Square,
+  Sparkles,
+  X,
+  MessageSquare,
+  Bot,
+  Cpu,
+  Plus,
+  Camera,
+  Mic,
+  MicOff,
+  AlertCircle,
+} from 'lucide-react';
 import { TurnMode } from '../threads';
 
 interface GoalInputProps {
@@ -34,7 +47,9 @@ export const GoalInput: React.FC<GoalInputProps> = ({
   filesComponent,
 }) => {
   const [isListening, setIsListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
+  const baseGoalRef = useRef<string>('');
 
   useEffect(() => {
     return () => {
@@ -60,7 +75,98 @@ export const GoalInput: React.FC<GoalInputProps> = ({
     }
   }, [isRunning, isListening]);
 
-  const toggleVoiceInput = () => {
+  const openMicPermissionPage = () => {
+    const url =
+      typeof chrome !== 'undefined' && chrome.runtime?.getURL
+        ? chrome.runtime.getURL('src/sidepanel/mic-permission.html')
+        : '/src/sidepanel/mic-permission.html';
+
+    if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.create === 'function') {
+      chrome.tabs.create({ url });
+    } else if (typeof window !== 'undefined' && window.open) {
+      window.open(url, '_blank');
+    }
+  };
+
+  const startRecognition = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setVoiceError('Speech recognition is not supported in this browser version.');
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = navigator.language || 'en-US';
+
+      baseGoalRef.current = goal.trim();
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setVoiceError(null);
+      };
+
+      recognition.onresult = (event: any) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const res = event.results[i];
+          if (res.isFinal) {
+            finalTranscript += res[0].transcript;
+          } else {
+            interimTranscript += res[0].transcript;
+          }
+        }
+
+        const speechChunk = (finalTranscript || interimTranscript).trim();
+        if (speechChunk) {
+          const base = baseGoalRef.current;
+          setGoal(base ? `${base} ${speechChunk}` : speechChunk);
+        }
+
+        if (finalTranscript) {
+          const base = baseGoalRef.current;
+          baseGoalRef.current = base ? `${base} ${finalTranscript.trim()}` : finalTranscript.trim();
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        const errType = event?.error;
+        console.warn('[Browgent Voice Input Error]', errType);
+        setIsListening(false);
+
+        if (errType === 'not-allowed' || errType === 'service-not-allowed') {
+          setVoiceError('Microphone permission required. Click "Enable Mic" to grant permission.');
+        } else if (errType === 'no-speech') {
+          // No speech detected, quietly stop
+        } else if (errType === 'network') {
+          setVoiceError('Speech recognition requires an internet connection (Google Speech API).');
+        } else if (errType === 'audio-capture') {
+          setVoiceError('No microphone detected. Please connect an audio input device.');
+        } else {
+          setVoiceError(`Voice input error: ${errType || 'Unknown'}`);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err: unknown) {
+      console.warn('[Browgent Voice Start Exception]', err);
+      setIsListening(false);
+      setVoiceError('Failed to initialize speech recognition. Please check your browser settings.');
+    }
+  };
+
+  const toggleVoiceInput = async () => {
     if (isRunning) return;
 
     if (isListening) {
@@ -75,45 +181,67 @@ export const GoalInput: React.FC<GoalInputProps> = ({
       return;
     }
 
+    setVoiceError(null);
+
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      alert('Speech recognition is not supported in this browser version.');
+      setVoiceError('Speech recognition is not supported in this browser version.');
       return;
     }
 
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = navigator.language || 'en-US';
-
-      recognition.onstart = () => {
-        setIsListening(true);
-      };
-
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0]?.[0]?.transcript;
-        if (transcript) {
-          setGoal(goal ? `${goal.trim()} ${transcript.trim()}` : transcript.trim());
+    // Try pre-requesting microphone permission via getUserMedia
+    if (
+      typeof navigator !== 'undefined' &&
+      navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getUserMedia === 'function'
+    ) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+      } catch (err: unknown) {
+        const errName = (err as { name?: string })?.name;
+        if (
+          errName === 'NotAllowedError' ||
+          errName === 'PermissionDeniedError' ||
+          errName === 'PermissionDismissedError'
+        ) {
+          setVoiceError('Microphone permission required. Click "Enable Mic" to grant permission.');
+          openMicPermissionPage();
+          return;
         }
-      };
-
-      recognition.onerror = () => {
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch {
-      setIsListening(false);
+      }
     }
+
+    startRecognition();
   };
+
+  // Listen for background broadcast when user grants mic permission on mic-permission.html
+  useEffect(() => {
+    if (
+      typeof chrome === 'undefined' ||
+      !chrome.runtime ||
+      !chrome.runtime.onMessage ||
+      typeof chrome.runtime.onMessage.addListener !== 'function'
+    ) {
+      return;
+    }
+
+    const handleMessage = (msg: { type?: string }) => {
+      if (msg?.type === 'MIC_PERMISSION_GRANTED') {
+        setVoiceError(null);
+        startRecognition();
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(handleMessage);
+    return () => {
+      if (typeof chrome.runtime?.onMessage?.removeListener === 'function') {
+        chrome.runtime.onMessage.removeListener(handleMessage);
+      }
+    };
+  }, [goal]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter') {
@@ -127,15 +255,48 @@ export const GoalInput: React.FC<GoalInputProps> = ({
     }
   };
 
-  const placeholder =
-    mode === 'ask'
-      ? 'Ask a question about this page... (Enter to send, Shift+Enter for newline)'
-      : 'Enter your automation goal... (e.g. Find top 3 products on this page and summarize prices)';
+  const placeholder = isListening
+    ? '🎙️ Listening... Speak into your microphone now (click mic to stop)'
+    : mode === 'ask'
+    ? 'Ask a question about this page... (Enter to send, Shift+Enter for newline)'
+    : 'Enter your automation goal... (e.g. Find top 3 products on this page and summarize prices)';
 
   return (
     <div className="p-2.5 bg-slate-950/90 border-t border-slate-800/80 flex flex-col gap-1.5 relative">
       {/* Subtle Google Multi-color Hairline Accent */}
       <div className="h-[1.5px] -mt-2.5 -mx-2.5 mb-1 bg-gradient-to-r from-[#4285F4] via-[#EA4335] via-[#FBBC05] to-[#34A853] opacity-60" />
+
+      {/* Voice Error / Permission Alert Banner */}
+      {voiceError && (
+        <div
+          data-testid="voice-error-banner"
+          className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-rose-950/60 border border-rose-800/80 rounded-lg text-[11px] text-rose-200 shadow-sm animate-fade-in"
+        >
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+            <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+            <span className="truncate">{voiceError}</span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {voiceError.includes('permission') && (
+              <button
+                type="button"
+                onClick={openMicPermissionPage}
+                className="px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-medium transition cursor-pointer shadow-xs"
+              >
+                Enable Mic
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setVoiceError(null)}
+              className="text-rose-400 hover:text-rose-200 p-0.5 rounded transition cursor-pointer"
+              aria-label="Dismiss voice error"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Optional Embedded Tab Context Bar */}
       {tabComponent}
@@ -144,7 +305,13 @@ export const GoalInput: React.FC<GoalInputProps> = ({
       {filesComponent}
 
       {/* Main Unified Composer Card */}
-      <div className="bg-slate-900/90 border border-slate-800/90 rounded-xl p-2.5 flex flex-col gap-2 shadow-lg focus-within:border-blue-500/60 focus-within:ring-1 focus-within:ring-blue-500/20 transition">
+      <div
+        className={`bg-slate-900/90 border rounded-xl p-2.5 flex flex-col gap-2 shadow-lg transition ${
+          isListening
+            ? 'border-rose-500/80 ring-1 ring-rose-500/30'
+            : 'border-slate-800/90 focus-within:border-blue-500/60 focus-within:ring-1 focus-within:ring-blue-500/20'
+        }`}
+      >
         {/* Top Segmented Mode Bar */}
         <div className="flex items-center justify-between">
           <div className="inline-flex items-center bg-slate-950/80 p-0.5 rounded-lg border border-slate-800/80 text-xs">
@@ -176,15 +343,29 @@ export const GoalInput: React.FC<GoalInputProps> = ({
             </button>
           </div>
 
-          <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
-            <kbd className="bg-slate-800 px-1 py-0.5 rounded text-slate-400 text-[9px] border border-slate-700/60">Enter</kbd> to send
-          </span>
+          {isListening ? (
+            <span className="text-[10px] text-rose-400 font-medium flex items-center gap-1 animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+              Listening...
+            </span>
+          ) : (
+            <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
+              <kbd className="bg-slate-800 px-1 py-0.5 rounded text-slate-400 text-[9px] border border-slate-700/60">
+                Enter
+              </kbd>{' '}
+              to send
+            </span>
+          )}
         </div>
 
         {/* Textarea Area */}
         <div className="relative">
           <textarea
-            className="w-full bg-transparent text-slate-100 placeholder-slate-500 text-xs p-1 pr-12 focus:outline-none resize-none h-18 transition font-sans"
+            className={`w-full bg-transparent text-xs p-1 pr-12 focus:outline-none resize-none h-18 transition font-sans ${
+              isListening
+                ? 'text-rose-100 placeholder-rose-400/70'
+                : 'text-slate-100 placeholder-slate-500'
+            }`}
             placeholder={placeholder}
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
@@ -266,7 +447,9 @@ export const GoalInput: React.FC<GoalInputProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-[9px] text-slate-500 font-mono hidden sm:inline">Shift+Enter for newline</span>
+            <span className="text-[9px] text-slate-500 font-mono hidden sm:inline">
+              Shift+Enter for newline
+            </span>
 
             {isRunning ? (
               <button

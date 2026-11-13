@@ -602,7 +602,7 @@ describe('background service worker', () => {
     await vi.waitFor(() => expect(runMock).toHaveBeenCalledTimes(1));
 
     // Check MISSIONS_UPDATE was received
-    const missionUpdates = lastPortStatus(port, 'MISSIONS_UPDATE') as Array<{
+    const missionUpdates = lastPortStatus(port, 'MISSIONS_UPDATE') as unknown as Array<{
       type: string;
       missions: Array<{ tabId: number; status: string; goal: string; title: string }>;
     }>;
@@ -621,7 +621,7 @@ describe('background service worker', () => {
 
     // Test GET_MISSIONS explicitly
     await handler({ type: 'GET_MISSIONS' });
-    const getMissionsCall = (lastPortStatus(port, 'MISSIONS_UPDATE') as Array<{
+    const getMissionsCall = (lastPortStatus(port, 'MISSIONS_UPDATE') as unknown as Array<{
       type: string;
       missions: Array<{ tabId: number }>;
     }>).at(-1);
@@ -630,7 +630,7 @@ describe('background service worker', () => {
     // Resolve run to complete
     resolveRun({ success: true, summary: 'Investigation complete' });
     await vi.waitFor(() => {
-      const completedUpdates = lastPortStatus(port, 'MISSIONS_UPDATE') as Array<{
+      const completedUpdates = lastPortStatus(port, 'MISSIONS_UPDATE') as unknown as Array<{
         missions: Array<{ tabId: number; status: string }>;
       }>;
       const found = completedUpdates.find((u) => u.missions.some((m) => m.tabId === 30 && m.status === 'completed'));
@@ -639,7 +639,7 @@ describe('background service worker', () => {
 
     // Test DISMISS_MISSION
     await handler({ type: 'DISMISS_MISSION', payload: { tabId: 30 } });
-    const afterDismiss = (lastPortStatus(port, 'MISSIONS_UPDATE') as Array<{
+    const afterDismiss = (lastPortStatus(port, 'MISSIONS_UPDATE') as unknown as Array<{
       missions: Array<{ tabId: number }>;
     }>).at(-1);
     expect(afterDismiss?.missions.some((m) => m.tabId === 30)).toBe(false);

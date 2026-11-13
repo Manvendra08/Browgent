@@ -50,7 +50,7 @@ describe('ChatThread Dossier Export', () => {
     render(
       <ChatThread
         turns={[mockTurn]}
-        onSelectStarter={vi.fn()}
+        isRunning={false}
       />,
     );
 
