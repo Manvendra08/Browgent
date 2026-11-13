@@ -260,6 +260,76 @@ describe('AuditorReflectionGate', () => {
       expect(verdict.reason).toContain('Excessive consecutive wait');
     });
 
+    it('whitelists consecutive waits when page has active streaming controls (e.g. Stop generating button)', async () => {
+      const streamingDOM: DOMState = {
+        ...mockDOM,
+        elements: [
+          ...mockDOM.elements,
+          {
+            id: 10,
+            tagName: 'BUTTON',
+            role: 'button',
+            text: 'Stop generating',
+            ariaLabel: 'Stop generating response',
+            rect: { x: 50, y: 100, width: 120, height: 30 },
+          },
+        ],
+        textExcerpt: 'Deep diving for 45s... Streaming output from DeepSeek Harness',
+      };
+
+      const verdict = await gate.reflect({
+        goal: 'wait for AI answer to complete',
+        goalKind: 'action',
+        action: { action: 'wait', seconds: 5 },
+        thought: 'DeepSeek is still streaming, waiting for output',
+        domState: streamingDOM,
+        elements: streamingDOM.elements,
+        actionHistory: [
+          { action: 'wait', seconds: 5 },
+          { action: 'wait', seconds: 5 },
+          { action: 'wait', seconds: 5 },
+        ],
+        stepNumber: 4,
+        maxSteps: 15,
+      });
+
+      // Whitelisted! Must be approved, not rejected
+      expect(verdict.status).toBe('approved');
+    });
+
+    it('whitelists consecutive waits when isGenerating is explicitly set or animated loader classes are present', async () => {
+      const generatingDOM: DOMState = {
+        ...mockDOM,
+        isGenerating: true,
+        elements: [
+          {
+            id: 20,
+            tagName: 'DIV',
+            text: 'Thinking...',
+            stateClasses: 'streaming animate-spin is-loading',
+            rect: { x: 10, y: 10, width: 20, height: 20 },
+          },
+        ],
+      };
+
+      const verdict = await gate.reflect({
+        goal: 'wait for response',
+        goalKind: 'action',
+        action: { action: 'wait', seconds: 5 },
+        thought: 'Waiting for generator',
+        domState: generatingDOM,
+        elements: generatingDOM.elements,
+        actionHistory: [
+          { action: 'wait', seconds: 5 },
+          { action: 'wait', seconds: 5 },
+        ],
+        stepNumber: 3,
+        maxSteps: 15,
+      });
+
+      expect(verdict.status).toBe('approved');
+    });
+
     it('rejects oscillating action loops (A -> B -> A -> B)', async () => {
       const actionA = { action: 'click' as const, elementId: 1 };
       const actionB = { action: 'click' as const, elementId: 3 };

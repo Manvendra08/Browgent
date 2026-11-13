@@ -16,7 +16,7 @@ import {
   waitForNetworkIdle,
 } from './cdp';
 import { isRestrictedUrl, RESTRICTED_URL_HINT } from './restricted';
-import { defaultAuditorReflectionGate, IAuditorReflectionGate } from './auditor';
+import { defaultAuditorReflectionGate, IAuditorReflectionGate, isPageGenerating } from './auditor';
 import { evaluateDestructiveAction } from './approval';
 import {
   extractDomain,
@@ -326,7 +326,7 @@ export class AgentController {
     });
   }
 
-  public checkLoop(action: AgentAction): boolean {
+  public checkLoop(action: AgentAction, isGenerating: boolean = false): boolean {
     // finish and fail have their own verification gates
     if (action.action === 'finish' || action.action === 'fail') {
       return false;
@@ -337,6 +337,10 @@ export class AgentController {
       const serialized = JSON.stringify(action);
       const waitHistory = this.actionHistory.slice(-2);
       this.actionHistory.push(serialized);
+      // Whitelist wait when page is actively streaming or generating (e.g. AI chats, long jobs)
+      if (isGenerating) {
+        return false;
+      }
       // Trigger loop detection on 3rd consecutive wait (or subsequent consecutive waits)
       if (
         waitHistory.length === 2 &&
@@ -654,8 +658,10 @@ export class AgentController {
             data: { step: this.currentStep, action, subIndex: i, total: actionsToExecute.length },
           });
 
+          const isGenerating = isPageGenerating(domState);
+
           // Check for repeating action loops
-          if (this.checkLoop(action)) {
+          if (this.checkLoop(action, isGenerating)) {
             const actionKey = action.action === 'wait' ? 'wait-loop' : JSON.stringify(action);
             if (!this.loopWarningsIssued.has(actionKey)) {
               this.loopWarningsIssued.add(actionKey);
@@ -686,18 +692,20 @@ export class AgentController {
             }
 
             if (action.action === 'wait') {
-              let consecutiveWaits = 0;
-              for (let idx = this.actionHistory.length - 1; idx >= 0; idx--) {
-                if (this.actionHistory[idx].includes('"action":"wait"')) {
-                  consecutiveWaits++;
-                } else {
-                  break;
+              if (!isGenerating) {
+                let consecutiveWaits = 0;
+                for (let idx = this.actionHistory.length - 1; idx >= 0; idx--) {
+                  if (this.actionHistory[idx].includes('"action":"wait"')) {
+                    consecutiveWaits++;
+                  } else {
+                    break;
+                  }
                 }
-              }
-              if (consecutiveWaits >= 5) {
-                throw new Error(
-                  `Loop detected: Agent repeated 'wait' ${consecutiveWaits} times consecutively without taking action. Aborting runaway wait loop.`,
-                );
+                if (consecutiveWaits >= 5) {
+                  throw new Error(
+                    `Loop detected: Agent repeated 'wait' ${consecutiveWaits} times consecutively without taking action. Aborting runaway wait loop.`,
+                  );
+                }
               }
             } else {
               throw new Error(

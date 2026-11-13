@@ -267,4 +267,30 @@ describe('AgentController loop detector', () => {
     expect(result.error).toContain("Agent repeated 'wait' 5 times consecutively");
     expect(controller.getStatus()).toBe('failed');
   });
+
+  it('whitelists consecutive waits in checkLoop when isGenerating is true', () => {
+    const controller = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 10,
+    });
+
+    // 1st wait
+    expect(controller.checkLoop({ action: 'wait' }, true)).toBe(false);
+    // 2nd wait
+    expect(controller.checkLoop({ action: 'wait' }, true)).toBe(false);
+    // 3rd wait while generating is whitelisted!
+    expect(controller.checkLoop({ action: 'wait' }, true)).toBe(false);
+    // 4th wait while generating is whitelisted!
+    expect(controller.checkLoop({ action: 'wait' }, true)).toBe(false);
+
+    // Contrasting with non-generating idle page on a new controller:
+    const idleController = new AgentController({
+      llmConfig: { provider: 'omniroute', model: 'free' },
+      maxSteps: 10,
+    });
+    expect(idleController.checkLoop({ action: 'wait' }, false)).toBe(false);
+    expect(idleController.checkLoop({ action: 'wait' }, false)).toBe(false);
+    // 3rd wait on idle page triggers loop detection
+    expect(idleController.checkLoop({ action: 'wait' }, false)).toBe(true);
+  });
 });

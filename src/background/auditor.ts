@@ -44,6 +44,54 @@ const ACTION_SUCCESS_PATTERNS = [
   /\b(?:transaction successful|transfer complete)\b/i,
 ];
 
+export function isPageGenerating(domState: DOMState): boolean {
+  if (domState.isGenerating) return true;
+
+  // 1. Check perceived elements for generating/streaming controls or indicators
+  if (domState.elements && domState.elements.length > 0) {
+    for (const el of domState.elements) {
+      const combined = `${el.text || ''} ${el.label || ''} ${el.ariaLabel || ''}`.trim().toLowerCase();
+      if (
+        combined.includes('stop generating') ||
+        combined.includes('stop generation') ||
+        combined.includes('stop response') ||
+        combined.includes('cancel generation') ||
+        combined.includes('stop deep diving') ||
+        combined.includes('deep diving for') ||
+        combined.includes('thinking...') ||
+        combined.includes('searching the web')
+      ) {
+        return true;
+      }
+
+      // Check stateClasses or roles
+      if (
+        el.stateClasses &&
+        /streaming|result-streaming|is-generating|is-loading|animate-spin|animate-pulse/i.test(el.stateClasses)
+      ) {
+        return true;
+      }
+      if (el.role === 'progressbar' || (el.role === 'status' && /loading|generating|processing/i.test(combined))) {
+        return true;
+      }
+    }
+  }
+
+  // 2. Check text excerpt or formatted prompt
+  const text = `${domState.textExcerpt || ''} ${domState.formattedPrompt || ''}`.toLowerCase();
+  if (
+    text.includes('stop generating') ||
+    text.includes('stop generation') ||
+    /deep diving for \d+/i.test(text) ||
+    text.includes('generating response') ||
+    text.includes('still generating')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export class AuditorReflectionGate implements IAuditorReflectionGate {
   /**
    * Main reflection entry point. Executes fast synchronous heuristic checks first,
@@ -192,14 +240,29 @@ export class AuditorReflectionGate implements IAuditorReflectionGate {
 
     // 3. Consecutive Wait Overload Check
     if (action.action === 'wait') {
-      const recentWaits = actionHistory.slice(-2).filter((a) => a.action === 'wait').length;
-      if (recentWaits >= 2) {
-        return {
-          status: 'rejected',
-          reason: 'Excessive consecutive wait actions without intermediate state progression.',
-          correctionHint:
-            'The browser has already waited across multiple consecutive steps. Do not wait again; inspect the current page content and choose a concrete action or finish.',
-        };
+      const isGenerating = isPageGenerating(domState);
+      if (!isGenerating) {
+        const recentWaits = actionHistory.slice(-2).filter((a) => a.action === 'wait').length;
+        if (recentWaits >= 2) {
+          return {
+            status: 'rejected',
+            reason: 'Excessive consecutive wait actions without intermediate state progression.',
+            correctionHint:
+              'The browser has already waited across multiple consecutive steps. Do not wait again; inspect the current page content and choose a concrete action or finish.',
+          };
+        }
+      } else {
+        // Whitelist consecutive waits when page is actively streaming or generating (e.g. AI chats, builds).
+        // Cap only at 15 consecutive waits (~150s) to guard against dead/frozen loaders.
+        const recentWaits = actionHistory.slice(-15).filter((a) => a.action === 'wait').length;
+        if (recentWaits >= 15) {
+          return {
+            status: 'rejected',
+            reason: 'Excessive wait actions exceeded streaming budget (waited over 150 seconds).',
+            correctionHint:
+              'The page has been generating for over 150 seconds. Inspect the partial output generated so far and either finish with the available response or take the next step.',
+          };
+        }
       }
     }
 

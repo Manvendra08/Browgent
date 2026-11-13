@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   captureDOMState,
+  detectStreamingState,
   extractInteractiveElements,
   formatElementsForPrompt,
   extractValidationErrors,
@@ -374,5 +375,66 @@ describe('Shadow DOM extraction & resolution', () => {
       const nestedBtn = elements.find((e) => e.text.includes('Hidden Inside Shadow'));
       expect(nestedBtn).toBeUndefined();
     }
+  });
+});
+
+describe('detectStreamingState & live generation flags', () => {
+  it('detects active streaming when Stop generating button is in the DOM', () => {
+    document.body.innerHTML = `
+      <div id="chat-container">
+        <div class="message">Reviewing the codebase for vulnerabilities...</div>
+        <button id="stop-btn" aria-label="Stop generating">Stop generating</button>
+      </div>
+    `;
+
+    const stream = detectStreamingState(document);
+    expect(stream.isGenerating).toBe(true);
+
+    const state = captureDOMState(document);
+    expect(state.isGenerating).toBe(true);
+  });
+
+  it('detects streaming when aria-busy="true" or animated loading classes are present', () => {
+    document.body.innerHTML = `
+      <div id="agent-workspace" aria-busy="true">
+        <div class="animate-spin spinner"></div>
+        <span>Thinking...</span>
+      </div>
+    `;
+
+    const stream = detectStreamingState(document);
+    expect(stream.isGenerating).toBe(true);
+
+    const state = captureDOMState(document);
+    expect(state.isGenerating).toBe(true);
+  });
+
+  it('detects reasoning indicators such as "Deep diving for 59s"', () => {
+    document.body.innerHTML = `
+      <div class="dsh-chat">
+        <div>Deep diving for 59s</div>
+      </div>
+    `;
+
+    const stream = detectStreamingState(document);
+    expect(stream.isGenerating).toBe(true);
+
+    const state = captureDOMState(document);
+    expect(state.isGenerating).toBe(true);
+  });
+
+  it('returns isGenerating false on normal static pages', () => {
+    document.body.innerHTML = `
+      <div>
+        <h1>Dashboard</h1>
+        <button>Submit</button>
+      </div>
+    `;
+
+    const stream = detectStreamingState(document);
+    expect(stream.isGenerating).toBe(false);
+
+    const state = captureDOMState(document);
+    expect(state.isGenerating).toBe(false);
   });
 });

@@ -988,6 +988,59 @@ export function extractVisibleText(
   return `${cleaned.slice(0, limit)}…`;
 }
 
+export function detectStreamingState(doc: Document = document): { isGenerating: boolean; reason?: string } {
+  try {
+    // 1. aria-busy attribute on document, main, or containers
+    if (doc.querySelector && doc.querySelector('[aria-busy="true"]')) {
+      return { isGenerating: true, reason: 'aria-busy="true" container detected' };
+    }
+
+    // 2. Common AI streaming, reasoning & animated loader classes
+    if (doc.querySelector) {
+      const streamingSelector =
+        '.streaming, .result-streaming, [class*="streaming"], [class*="is-generating"], [class*="is-loading"], .animate-spin, .animate-pulse';
+      const el = doc.querySelector(streamingSelector);
+      if (el) {
+        return { isGenerating: true, reason: `Streaming / loading class detected in DOM` };
+      }
+    }
+
+    // 3. Stop generating controls and buttons
+    if (doc.querySelectorAll) {
+      const buttons = doc.querySelectorAll('button, [role="button"], a');
+      for (const btn of Array.from(buttons)) {
+        const text = (btn.textContent || '').trim().toLowerCase();
+        const ariaLabel = (btn.getAttribute('aria-label') || '').trim().toLowerCase();
+        const combined = `${text} ${ariaLabel}`;
+        if (
+          combined.includes('stop generating') ||
+          combined.includes('stop generation') ||
+          combined.includes('stop response') ||
+          combined.includes('cancel generation') ||
+          combined.includes('stop deep diving') ||
+          combined.includes('deep diving for') ||
+          combined.includes('thinking...')
+        ) {
+          return { isGenerating: true, reason: `Active generation control detected: "${combined.slice(0, 40)}"` };
+        }
+      }
+    }
+
+    // 4. In-page live text patterns for deep reasoning / streaming
+    const bodyText = doc.body?.innerText || doc.body?.textContent || '';
+    if (
+      /deep diving for \d+/i.test(bodyText) ||
+      /stop generating/i.test(bodyText) ||
+      /generating response\.\.\./i.test(bodyText)
+    ) {
+      return { isGenerating: true, reason: 'Streaming text pattern detected on page' };
+    }
+  } catch {
+    // Ignore DOM query errors in transient frames
+  }
+  return { isGenerating: false };
+}
+
 export function captureDOMState(doc: Document = document): DOMState {
   const activeModal = findActiveModal(doc);
   const activeModalTitle = activeModal ? extractModalTitle(activeModal) : undefined;
@@ -995,6 +1048,7 @@ export function captureDOMState(doc: Document = document): DOMState {
   const elements = extractInteractiveElements(doc);
   const formattedPrompt = formatElementsForPrompt(elements, activeModalTitle, validationErrors);
   const textExcerpt = extractVisibleText(doc);
+  const streamInfo = detectStreamingState(doc);
 
   const scrollX = typeof window !== 'undefined' ? window.scrollX || 0 : 0;
   const scrollY = typeof window !== 'undefined' ? window.scrollY || 0 : 0;
@@ -1015,6 +1069,8 @@ export function captureDOMState(doc: Document = document): DOMState {
     activeModalTitle,
     validationErrors: validationErrors.length > 0 ? validationErrors : undefined,
     textExcerpt,
+    isGenerating: streamInfo.isGenerating,
+    generatingReason: streamInfo.reason,
     viewport: {
       width,
       height,

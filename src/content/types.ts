@@ -48,6 +48,8 @@ export interface DOMState {
    */
   textExcerpt: string;
   validationErrors?: string[];
+  isGenerating?: boolean;
+  generatingReason?: string;
   viewport: {
     width: number;
     height: number;
