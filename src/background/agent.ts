@@ -945,8 +945,16 @@ export class AgentController {
           // Re-perceive between chained sub-actions so the next action targets the live DOM
           // instead of a stale element map captured at the start of the turn.
           if (i < actionsToExecute.length - 1) {
+            if (this.stopRequested) {
+              await this.cleanup(tabId);
+              return { success: false, error: 'Agent execution stopped by user.' };
+            }
             // Stabilize page and settle DOM/network mutations triggered by the preceding sub-action
             await this.stabilizePage(this.currentTabId, action);
+            if (this.stopRequested) {
+              await this.cleanup(tabId);
+              return { success: false, error: 'Agent execution stopped by user.' };
+            }
             try {
               const refreshed = await this.capturePageDOM(this.currentTabId);
               currentElements = refreshed.elements;
@@ -960,10 +968,19 @@ export class AgentController {
           continue;
         }
 
+        if (this.stopRequested) {
+          await this.cleanup(tabId);
+          return { success: false, error: 'Agent execution stopped by user.' };
+        }
+
         // Adaptive DOM stabilization between turns (250ms default or tab load wait)
         const tSettleStart = Date.now();
         const lastAction = actionsToExecute[actionsToExecute.length - 1];
         await this.stabilizePage(this.currentTabId, lastAction);
+        if (this.stopRequested) {
+          await this.cleanup(tabId);
+          return { success: false, error: 'Agent execution stopped by user.' };
+        }
         const settleMs = Date.now() - tSettleStart;
 
         const totalMs = Date.now() - stepStartTime;
@@ -1143,8 +1160,13 @@ ${fileSection}${globalDirectivesSection}`;
     } catch (err: unknown) {
       this.status = this.stopRequested ? 'stopped' : 'failed';
       const errMsg = err instanceof Error ? err.message : String(err);
-      onProgress({ type: 'error', data: { error: errMsg } });
-      return { success: false, error: errMsg };
+      if (!this.stopRequested) {
+        onProgress({ type: 'error', data: { error: errMsg } });
+      }
+      return {
+        success: false,
+        error: this.stopRequested ? 'Agent execution stopped by user.' : errMsg,
+      };
     } finally {
       await this.cleanup(tabId);
     }
@@ -1775,6 +1797,8 @@ ${domState.formattedPrompt}${textBlock}
   }
 
   private async stabilizePage(tabId: number, lastAction?: AgentAction): Promise<void> {
+    if (this.stopRequested) return;
+
     const isTest = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
     if (isTest) {
       await new Promise((r) => setTimeout(r, 10));
@@ -1784,6 +1808,7 @@ ${domState.formattedPrompt}${textBlock}
     // Always check if the tab is currently loading (from navigate, link clicks, form submissions, or redirects)
     if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.get === 'function') {
       for (let i = 0; i < 35; i++) {
+        if (this.stopRequested) return;
         try {
           const tab = await chrome.tabs.get(tabId);
           if (tab.status === 'complete') break;

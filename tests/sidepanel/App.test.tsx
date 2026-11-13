@@ -553,4 +553,60 @@ describe('Sidepanel App Conversational Flow', () => {
     // Card should disappear after approval
     expect(screen.queryByTestId('approval-gate-card')).toBeNull();
   });
+
+  it('reliably halts execution and updates status to stopped when Stop button is clicked', async () => {
+    let messageListener: ((msg: any) => void) | null = null;
+    const postMessageMock = vi.fn();
+
+    vi.mocked(chrome.runtime.connect).mockReturnValue({
+      postMessage: postMessageMock,
+      onMessage: {
+        addListener: vi.fn((cb) => {
+          messageListener = cb;
+        }),
+        removeListener: vi.fn(),
+      },
+      onDisconnect: {
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+      },
+    } as any);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(messageListener).toBeDefined();
+    });
+
+    // Simulate agent running status
+    act(() => {
+      messageListener?.({
+        type: 'STATUS_UPDATE',
+        status: 'running',
+        tab: { id: 101, title: 'Running Page', url: 'https://example.com' },
+      });
+    });
+
+    // The Stop button should now be visible and clickable
+    await waitFor(() => {
+      expect(screen.getByTitle('Stop Agent')).toBeDefined();
+    });
+
+    const stopButton = screen.getByTitle('Stop Agent');
+    fireEvent.click(stopButton);
+
+    // Verified that STOP_AGENT message was dispatched
+    expect(postMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'STOP_AGENT',
+        payload: expect.objectContaining({ tabId: 101 }),
+      }),
+    );
+
+    // Verified that status transitions to stopped and Run Agent / Ask button returns
+    await waitFor(() => {
+      expect(screen.queryByTitle('Stop Agent')).toBeNull();
+      expect(screen.getByTitle(/Run Agent|Ask/)).toBeDefined();
+    });
+  });
 });

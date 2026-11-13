@@ -242,7 +242,11 @@ export const App: React.FC = () => {
 
       port.onMessage.addListener((msg) => {
         if (msg.type === 'STATUS_UPDATE') {
-          setStatus(msg.status);
+          const msgTabId = (msg as { tabId?: number }).tabId;
+          const currentTab = boundTabId ?? activeTab?.id;
+          if (msgTabId === undefined || currentTab === undefined || msgTabId === currentTab) {
+            setStatus(msg.status);
+          }
           if (msg.status === 'running' && msg.tab) {
             setAgentTab({
               id: msg.tab.id,
@@ -250,7 +254,7 @@ export const App: React.FC = () => {
               url: msg.tab.url,
               favIconUrl: msg.tab.favIconUrl,
             });
-          } else {
+          } else if (msg.status === 'stopped' || msg.status === 'completed' || msg.status === 'failed') {
             setAgentTab(null);
           }
         }
@@ -295,14 +299,25 @@ export const App: React.FC = () => {
           if (event.type === 'done') {
             setStatus('completed');
           } else if (event.type === 'error') {
-            setStatus('failed');
+            setStatus((prev) => (prev === 'stopped' ? 'stopped' : 'failed'));
           }
         }
 
         if (msg.type === 'FINISHED') {
           setPendingApproval(null);
           setAgentTab(null);
-          setStatus(msg.success ? 'completed' : 'failed');
+          const isStopped =
+            (msg as { status?: string }).status === 'stopped' ||
+            (!msg.success &&
+              (msg.error?.toLowerCase().includes('stopped') ||
+                msg.error?.toLowerCase().includes('abort') ||
+                msg.error?.toLowerCase().includes('cancelled')));
+          const finalStatus: 'idle' | 'running' | 'completed' | 'failed' | 'stopped' = msg.success
+            ? 'completed'
+            : isStopped
+              ? 'stopped'
+              : 'failed';
+          setStatus(finalStatus);
           const currentTurnId = activeTurnIdRef.current;
           if (currentTurnId) {
             setThreads((prev) =>
@@ -313,9 +328,9 @@ export const App: React.FC = () => {
                 const updatedTurns = [...thread.turns];
                 updatedTurns[turnIdx] = {
                   ...turn,
-                  status: msg.success ? 'completed' : 'failed',
+                  status: finalStatus,
                   result: msg.summary ?? turn.result,
-                  error: msg.error ?? turn.error,
+                  error: isStopped ? undefined : (msg.error ?? turn.error),
                 };
                 return {
                   ...thread,
@@ -330,8 +345,16 @@ export const App: React.FC = () => {
 
         if (msg.type === 'ERROR') {
           setPendingApproval(null);
-          setStatus('failed');
           setAgentTab(null);
+          const isStopped =
+            (msg as { status?: string }).status === 'stopped' ||
+            msg.error?.toLowerCase().includes('stopped') ||
+            msg.error?.toLowerCase().includes('abort') ||
+            msg.error?.toLowerCase().includes('cancelled');
+          const finalStatus: 'idle' | 'running' | 'completed' | 'failed' | 'stopped' = isStopped
+            ? 'stopped'
+            : 'failed';
+          setStatus(finalStatus);
           const currentTurnId = activeTurnIdRef.current;
           if (currentTurnId) {
             setThreads((prev) =>
@@ -342,8 +365,8 @@ export const App: React.FC = () => {
                 const updatedTurns = [...thread.turns];
                 updatedTurns[turnIdx] = {
                   ...turn,
-                  status: 'failed',
-                  error: msg.error ?? 'Execution error',
+                  status: finalStatus,
+                  error: isStopped ? undefined : (msg.error ?? 'Execution error'),
                 };
                 return {
                   ...thread,
@@ -756,18 +779,49 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleStop = () => {
+  const handleStop = React.useCallback(() => {
     setPendingApproval(null);
-    const port = getOrCreatePort();
-    if (port) {
-      port.postMessage({
-        type: 'STOP_AGENT',
-        payload: {
-          tabId: boundTabId ?? activeTab?.id,
-        },
-      });
+    const targetTabId = agentTab?.id ?? boundTabId ?? activeTab?.id;
+    try {
+      const port = getOrCreatePort();
+      if (port) {
+        port.postMessage({
+          type: 'STOP_AGENT',
+          payload: {
+            tabId: targetTabId,
+          },
+        });
+      }
+    } catch (e) {
+      console.warn('[Browgent] Error posting STOP_AGENT to port:', e);
     }
+
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      try {
+        chrome.runtime.sendMessage({
+          type: 'STOP_AGENT',
+          payload: { tabId: targetTabId },
+        }).catch(() => {});
+      } catch {
+        // Ignore
+      }
+    }
+
     setStatus('stopped');
+    setAgentTab(null);
+
+    if (typeof targetTabId === 'number') {
+      setMissions((prev) =>
+        prev.map((m) =>
+          m.tabId === targetTabId ? { ...m, status: 'stopped', endTime: Date.now() } : m,
+        ),
+      );
+    } else {
+      setMissions((prev) =>
+        prev.map((m) => (m.status === 'running' ? { ...m, status: 'stopped', endTime: Date.now() } : m)),
+      );
+    }
+
     const currentTurnId = activeTurnIdRef.current;
     if (currentTurnId) {
       setThreads((prev) =>
@@ -789,7 +843,7 @@ export const App: React.FC = () => {
       );
       activeTurnIdRef.current = null;
     }
-  };
+  }, [agentTab, boundTabId, activeTab, getOrCreatePort]);
 
   const handleApproveAction = () => {
     const port = getOrCreatePort();
@@ -838,9 +892,53 @@ export const App: React.FC = () => {
           // Ignore
         }
       }
+      const targetMission = missions.find((m) => m.tabId === tabId);
+      if (targetMission) {
+        setStatus(targetMission.status === 'waiting_approval' ? 'running' : targetMission.status);
+      } else {
+        setStatus('idle');
+      }
       refreshActiveTab();
     },
-    [refreshActiveTab],
+    [missions, refreshActiveTab],
+  );
+
+  const handleStopMission = React.useCallback(
+    (tabId: number) => {
+      try {
+        const port = getOrCreatePort();
+        if (port) {
+          port.postMessage({
+            type: 'STOP_AGENT',
+            payload: { tabId },
+          });
+        }
+      } catch (e) {
+        console.warn('[Browgent] Error posting STOP_AGENT to port:', e);
+      }
+
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        try {
+          chrome.runtime.sendMessage({
+            type: 'STOP_AGENT',
+            payload: { tabId },
+          }).catch(() => {});
+        } catch {
+          // Ignore
+        }
+      }
+
+      setMissions((prev) =>
+        prev.map((m) => (m.tabId === tabId ? { ...m, status: 'stopped', endTime: Date.now() } : m)),
+      );
+
+      const currentTab = boundTabId ?? activeTab?.id;
+      if (currentTab === tabId) {
+        setStatus('stopped');
+        setAgentTab(null);
+      }
+    },
+    [boundTabId, activeTab, getOrCreatePort],
   );
 
   const handleDismissMission = React.useCallback(
@@ -1034,6 +1132,7 @@ export const App: React.FC = () => {
             currentTabId={boundTabId ?? activeTab?.id}
             onSelectTab={handleSelectMissionTab}
             onDismissMission={handleDismissMission}
+            onStopMission={handleStopMission}
           />
         }
         filesComponent={

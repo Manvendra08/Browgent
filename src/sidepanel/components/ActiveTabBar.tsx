@@ -29,6 +29,7 @@ interface ActiveTabBarProps {
   currentTabId?: number;
   onSelectTab?: (tabId: number) => void;
   onDismissMission?: (tabId: number) => void;
+  onStopMission?: (tabId: number) => void;
 }
 
 function domainOf(url?: string): string {
@@ -47,6 +48,7 @@ export const ActiveTabBar: React.FC<ActiveTabBarProps> = ({
   currentTabId,
   onSelectTab,
   onDismissMission,
+  onStopMission,
 }) => {
   const [favFailed, setFavFailed] = useState(false);
   const favIconUrl = tab?.favIconUrl;
@@ -129,6 +131,22 @@ export const ActiveTabBar: React.FC<ActiveTabBarProps> = ({
                 <span className={`max-w-[110px] truncate ${isCurrent ? 'text-blue-950 dark:text-blue-100 font-semibold' : 'text-slate-800 dark:text-slate-200'}`}>
                   {pillTitle}
                 </span>
+
+                {/* Stop button for running missions */}
+                {m.status === 'running' && onStopMission && (
+                  <button
+                    type="button"
+                    aria-label={`Stop mission for tab ${m.tabId}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onStopMission(m.tabId);
+                    }}
+                    className="ml-0.5 text-rose-500 hover:text-white hover:bg-[#EA4335] dark:text-rose-400 dark:hover:text-white dark:hover:bg-[#EA4335] p-0.5 rounded transition cursor-pointer"
+                    title={`Stop mission on ${pillTitle}`}
+                  >
+                    <Square className="w-2.5 h-2.5 fill-current" />
+                  </button>
+                )}
 
                 {/* Dismiss button for non-running missions */}
                 {m.status !== 'running' && onDismissMission && (

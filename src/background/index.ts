@@ -515,30 +515,45 @@ chrome.runtime.onConnect.addListener((port) => {
               ? await agent.answer(tabId, goal, onProgressCb)
               : await agent.run(tabId, goal, onProgressCb);
 
+          const isStopped =
+            (agent as unknown as { getStatus?: () => string }).getStatus?.() === 'stopped' ||
+            result.error?.toLowerCase().includes('stopped') ||
+            result.error?.toLowerCase().includes('cancelled') ||
+            result.error?.toLowerCase().includes('abort');
+          const finalStatus = result.success ? 'completed' : isStopped ? 'stopped' : 'failed';
+
           const mission = tabMissions.get(tabId);
           if (mission) {
-            mission.status = result.success ? 'completed' : 'failed';
+            mission.status = finalStatus;
             mission.endTime = Date.now();
-            if (result.error) mission.error = result.error;
+            if (result.error && !isStopped) mission.error = result.error;
             broadcastMissions();
           }
 
           port.postMessage({
             type: 'FINISHED',
             success: result.success,
+            status: finalStatus,
             summary: result.summary,
-            error: result.error,
+            error: isStopped ? undefined : result.error,
           });
         } catch (err: unknown) {
           const msgStr = err instanceof Error ? err.message : String(err);
+          const isStopped =
+            (agent as unknown as { getStatus?: () => string }).getStatus?.() === 'stopped' ||
+            msgStr.toLowerCase().includes('stopped') ||
+            msgStr.toLowerCase().includes('cancelled') ||
+            msgStr.toLowerCase().includes('abort');
+          const finalStatus = isStopped ? 'stopped' : 'failed';
+
           const mission = tabMissions.get(tabId);
           if (mission) {
-            mission.status = 'failed';
+            mission.status = finalStatus;
             mission.endTime = Date.now();
-            mission.error = msgStr;
+            if (!isStopped) mission.error = msgStr;
             broadcastMissions();
           }
-          port.postMessage({ type: 'ERROR', error: msgStr });
+          port.postMessage({ type: 'ERROR', error: msgStr, status: finalStatus });
         } finally {
           activeAgents.delete(tabId);
         }
@@ -582,22 +597,23 @@ chrome.runtime.onConnect.addListener((port) => {
 
       if (msg.type === 'STOP_AGENT') {
         const targetTabId = (msg.payload as { tabId?: number } | undefined)?.tabId ?? boundTabId;
-        if (typeof targetTabId === 'number') {
+        let stoppedAny = false;
+
+        if (typeof targetTabId === 'number' && activeAgents.has(targetTabId)) {
           const agent = activeAgents.get(targetTabId);
           if (agent) {
             agent.stop();
             activeAgents.delete(targetTabId);
-            port.postMessage({ type: 'STATUS_UPDATE', status: 'stopped' });
+            stoppedAny = true;
           }
           const mission = tabMissions.get(targetTabId);
           if (mission) {
             mission.status = 'stopped';
             mission.endTime = Date.now();
-            broadcastMissions();
           }
         } else {
-          // If no specific tab identified, stop any active agent
-          let stoppedAny = false;
+          // If no specific tab identified, or target tab didn't have an agent,
+          // stop all active agents so background runs never hang un-killable
           for (const [id, agent] of Array.from(activeAgents.entries())) {
             agent.stop();
             activeAgents.delete(id);
@@ -608,10 +624,32 @@ chrome.runtime.onConnect.addListener((port) => {
               mission.endTime = Date.now();
             }
           }
-          if (stoppedAny) {
-            port.postMessage({ type: 'STATUS_UPDATE', status: 'stopped' });
-            broadcastMissions();
+          if (typeof targetTabId === 'number') {
+            const mission = tabMissions.get(targetTabId);
+            if (mission) {
+              mission.status = 'stopped';
+              mission.endTime = Date.now();
+            }
           }
+        }
+
+        if (stoppedAny) {
+          try {
+            port.postMessage({ type: 'STATUS_UPDATE', status: 'stopped' });
+          } catch {
+            // port dropped
+          }
+          if (typeof targetTabId === 'number' && sidepanelPorts.has(targetTabId)) {
+            const tabPort = sidepanelPorts.get(targetTabId);
+            if (tabPort && tabPort !== port) {
+              try {
+                tabPort.postMessage({ type: 'STATUS_UPDATE', status: 'stopped' });
+              } catch {
+                // port dropped
+              }
+            }
+          }
+          broadcastMissions();
         }
       }
 
@@ -632,3 +670,52 @@ chrome.runtime.onConnect.addListener((port) => {
     });
   }
 });
+
+if (
+  typeof chrome !== 'undefined' &&
+  chrome.runtime &&
+  chrome.runtime.onMessage &&
+  typeof chrome.runtime.onMessage.addListener === 'function'
+) {
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg?.type === 'STOP_AGENT') {
+      const targetTabId = (msg.payload as { tabId?: number } | undefined)?.tabId;
+      let stoppedAny = false;
+      if (typeof targetTabId === 'number' && activeAgents.has(targetTabId)) {
+        const agent = activeAgents.get(targetTabId);
+        if (agent) {
+          agent.stop();
+          activeAgents.delete(targetTabId);
+          stoppedAny = true;
+        }
+        const mission = tabMissions.get(targetTabId);
+        if (mission) {
+          mission.status = 'stopped';
+          mission.endTime = Date.now();
+        }
+      } else {
+        for (const [id, agent] of Array.from(activeAgents.entries())) {
+          agent.stop();
+          activeAgents.delete(id);
+          stoppedAny = true;
+          const mission = tabMissions.get(id);
+          if (mission) {
+            mission.status = 'stopped';
+            mission.endTime = Date.now();
+          }
+        }
+      }
+      if (stoppedAny) {
+        for (const p of Array.from(allConnectedPorts)) {
+          try {
+            p.postMessage({ type: 'STATUS_UPDATE', status: 'stopped' });
+          } catch {
+            // ignore dropped port
+          }
+        }
+        broadcastMissions();
+      }
+      sendResponse?.({ success: stoppedAny });
+    }
+  });
+}

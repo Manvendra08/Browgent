@@ -111,4 +111,35 @@ describe('ActiveTabBar', () => {
     fireEvent.click(dismissBtn);
     expect(onDismissMission).toHaveBeenCalledWith(103);
   });
+
+  it('renders an inline stop button on running mission pills and triggers onStopMission', () => {
+    const onStopMission = vi.fn();
+    const mockMissions: TabAgentMission[] = [
+      {
+        tabId: 201,
+        title: 'Running Research',
+        url: 'https://example.com/research',
+        status: 'running',
+        goal: 'Analyze data',
+        mode: 'agent',
+        step: 2,
+        maxSteps: 10,
+        startTime: Date.now() - 2000,
+      },
+    ];
+
+    render(
+      <ActiveTabBar
+        tab={{ id: 201, title: 'Running Research', url: 'https://example.com/research' }}
+        missions={mockMissions}
+        currentTabId={201}
+        onStopMission={onStopMission}
+      />,
+    );
+
+    const stopBtn = screen.getByLabelText('Stop mission for tab 201');
+    expect(stopBtn).toBeTruthy();
+    fireEvent.click(stopBtn);
+    expect(onStopMission).toHaveBeenCalledWith(201);
+  });
 });
